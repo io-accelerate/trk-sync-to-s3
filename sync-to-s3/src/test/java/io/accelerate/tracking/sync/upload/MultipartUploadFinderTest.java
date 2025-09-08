@@ -56,7 +56,7 @@ public class MultipartUploadFinderTest {
         });
 
         MatcherAssert.assertThat(destinationOperationException.getMessage(),
-                containsString("Failed to list upload request:"));
+                containsString("Failed to list multipart uploads:"));
     }
 
     @Test

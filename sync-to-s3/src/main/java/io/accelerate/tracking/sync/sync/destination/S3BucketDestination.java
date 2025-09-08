@@ -4,6 +4,7 @@ import io.accelerate.tracking.sync.upload.MultipartUploadFinder;
 import io.accelerate.tracking.sync.upload.MultipartUploadResult;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
+import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.*;
@@ -39,7 +40,7 @@ public class S3BucketDestination implements Destination {
             s3.getBucketAcl(GetBucketAclRequest.builder()
                     .bucket("ping.s3.accelerate.io")
                     .build());
-        } catch (S3Exception e) {
+        } catch (AwsServiceException e) {
             // Re-throw or log as startup failure
             throw new IllegalStateException("S3 sanity check failed: " + e.awsErrorDetails().errorMessage(), e);
         }
@@ -49,12 +50,16 @@ public class S3BucketDestination implements Destination {
     public void startS3SyncSession() throws DestinationOperationException {
         try {
             String objectKey = prefix + "last_sync_start.txt";
-            awsClient.putObject(PutObjectRequest.builder()
+            PutObjectRequest putObjectRequest = PutObjectRequest.builder()
                     .bucket(bucket)
                     .key(objectKey)
-                    .build(), RequestBody.fromString("timestamp: " + System.currentTimeMillis())
-            );
-        } catch (S3Exception ex) {
+                    .build();
+            RequestBody requestBody = RequestBody.fromString("timestamp: " + System.currentTimeMillis());
+            PutObjectResponse putObjectResponse = awsClient.putObject(putObjectRequest, requestBody);
+            if (!putObjectResponse.sdkHttpResponse().isSuccessful()) {
+                throw new DestinationOperationException("Failed to write last_sync_start.txt");
+            }
+        } catch (AwsServiceException ex) {
             throw new DestinationOperationException("Failed to start S3 sync session", ex);
         }
     }
@@ -68,7 +73,7 @@ public class S3BucketDestination implements Destination {
                     .key(objectKey)
                     .build(), RequestBody.fromString("timestamp: " + System.currentTimeMillis())
             );
-        } catch (S3Exception ex) {
+        } catch (AwsServiceException ex) {
             throw new DestinationOperationException("Failed to stop S3 sync session", ex);
         }
     }
@@ -108,13 +113,11 @@ public class S3BucketDestination implements Destination {
 
             CreateMultipartUploadResponse response = awsClient.createMultipartUpload(request);
             return response.uploadId();
-        } catch (S3Exception ex) {
+        } catch (AwsServiceException ex) {
             throw new DestinationOperationException("Failed to initialize uploading: " + fullPath, ex);
         }
     }
     
-    
-
     @Override
     public List<Part> getAlreadyUploadedParts(String remotePath) throws DestinationOperationException {
         MultipartUpload multipartUpload = findOrNull(remotePath);
@@ -141,7 +144,7 @@ public class S3BucketDestination implements Destination {
         try {
             UploadPartResponse result = awsClient.uploadPart(request, requestBody);
             return new MultipartUploadResult(request, result);
-        } catch (S3Exception ex) {
+        } catch (AwsServiceException ex) {
             throw new DestinationOperationException("Failed to upload multipart: " + request.key() + " #" + request.partNumber(), ex);
         }
     }
@@ -157,7 +160,7 @@ public class S3BucketDestination implements Destination {
                     .build();
 
             awsClient.completeMultipartUpload(request);
-        } catch (S3Exception ex) {
+        } catch (AwsServiceException ex) {
             throw new DestinationOperationException("Failed to complete multipart upload", ex);
         }
     }
@@ -211,7 +214,7 @@ public class S3BucketDestination implements Destination {
 
             ListPartsResponse response = awsClient.listParts(request);
             return response.parts();
-        } catch (S3Exception ex) {
+        } catch (AwsServiceException ex) {
             throw new DestinationOperationException("Failed to list uploaded parts", ex);
         }
     }

@@ -2,6 +2,7 @@ package io.accelerate.tracking.sync.upload;
 
 import io.accelerate.tracking.sync.sync.destination.DestinationOperationException;
 import org.slf4j.Logger;
+import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.ListMultipartUploadsRequest;
 import software.amazon.awssdk.services.s3.model.ListMultipartUploadsResponse;
@@ -65,7 +66,7 @@ public class MultipartUploadFinder {
         try {
             // AWS SDK v2: Use S3Client to list multipart uploads
             return awsClient.listMultipartUploads(request);
-        } catch (S3Exception ex) {
+        } catch (AwsServiceException ex) {
             throw new DestinationOperationException(
                     "Failed to list multipart uploads: bucket=" + request.bucket() + ", prefix=" + request.prefix(),
                     ex

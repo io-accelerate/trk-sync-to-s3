@@ -1,54 +1,52 @@
 package io.accelerate.tracking.sync.testframework.rules;
 
-import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
-import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
-import software.amazon.awssdk.regions.Region;
-import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.Bucket;
-import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
-import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
-
 import java.net.URI;
+
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.core.exception.SdkClientException;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.S3Configuration;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
+import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 
 public class LocalTestBucket extends TestBucket {
 
     public LocalTestBucket() {
-        // Create a credential provider
-        AwsBasicCredentials credentials = AwsBasicCredentials.create(
-                "minio_access_key",
-                "minio_secret_key"
-        );
+        // Exactly the creds from your docker run
+        AwsCredentialsProvider creds =
+                StaticCredentialsProvider.create(
+                        AwsBasicCredentials.create("minio_access_key", "minio_secret_key"));
 
-        // Build the S3 client
-        amazonS3 = S3Client.builder()
-                .endpointOverride(URI.create("http://127.0.0.1:9000")) // Set endpoint
-                .region(Region.US_EAST_1) // Set region
-                .credentialsProvider(StaticCredentialsProvider.create(credentials))
-                .forcePathStyle(true) // Enable path-style access
+        this.amazonS3 = S3Client.builder()
+                .endpointOverride(URI.create("http://127.0.0.1:9000"))
+                .region(Region.US_EAST_1)
+                .credentialsProvider(creds)
+                .serviceConfiguration(S3Configuration.builder()
+                        .pathStyleAccessEnabled(true)   // v2 equivalent of forcePathStyle(true)
+                        .build())
                 .build();
 
-        // Initialize bucket name
-        bucketName = "localbucket";
+        this.bucketName = "localbucket";
+        this.uploadPrefix = "prefix/";
 
-        // Check if the bucket exists, if not create it
-        if (!doesBucketExist(bucketName)) {
-            amazonS3.createBucket(CreateBucketRequest.builder()
-                    .bucket(bucketName)
-                    .build());
-        }
-
-        // Set upload prefix
-        uploadPrefix = "prefix/";
+        ensureBucketExists(this.amazonS3, this.bucketName);
     }
 
-    private boolean doesBucketExist(String bucketName) {
-        // List all buckets and check if our bucket exists
-        ListBucketsResponse bucketsResponse = amazonS3.listBuckets();
-        for (Bucket bucket : bucketsResponse.buckets()) {
-            if (bucket.name().equals(bucketName)) {
-                return true;
+    private static void ensureBucketExists(S3Client s3, String bucket) {
+        try {
+            s3.headBucket(HeadBucketRequest.builder().bucket(bucket).build());
+        } catch (S3Exception e) {
+            if (e.statusCode() == 404) {
+                s3.createBucket(CreateBucketRequest.builder().bucket(bucket).build());
+            } else {
+                throw e;
             }
+        } catch (SdkClientException e) {
+            throw new IllegalStateException("Cannot reach MinIO at http://127.0.0.1:9000: " + e.getMessage(), e);
         }
-        return false;
     }
 }

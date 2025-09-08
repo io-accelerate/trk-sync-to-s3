@@ -58,7 +58,7 @@ public class MultipartUploadFileTest {
         doReturn(partNumbers)
                 .when(multipartUploadFile)
                 .getFailedMiddlePartNumbers();
-        doReturn(mock(UploadPartRequest.class))
+        doReturn(mock(UploadPartRequestAndBody.class))
                 .when(multipartUploadFile)
                 .getUploadPartRequestForData(any(), anyInt());
         doCallRealMethod().when(multipartUploadFile)

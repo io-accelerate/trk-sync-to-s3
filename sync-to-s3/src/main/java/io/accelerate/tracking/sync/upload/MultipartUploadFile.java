@@ -154,7 +154,6 @@ public class MultipartUploadFile {
             int partSize = nextPart.length;
             List<UploadPartRequestAndBody> requests = new ArrayList<>();
             while (partSize > 0) {
-                boolean isLastPart = isWritingFinished && partSize < MINIMUM_PART_SIZE;
                 UploadPartRequestAndBody request = getUploadPartRequestForData(nextPart, nextPartToUploadIndex);
                 nextPartToUploadIndex++;
                 requests.add(request);

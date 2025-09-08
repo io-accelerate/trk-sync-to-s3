@@ -43,7 +43,6 @@ public class RemoteSync {
     }
 
     private void buildFolderSynchronizer() {
-        Filters filters = source.getFilters();
         folderSynchronizer = new FolderSynchronizer(source, fileUploadingService);
     }
 }

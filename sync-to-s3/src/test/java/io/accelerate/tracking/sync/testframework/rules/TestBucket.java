@@ -38,13 +38,9 @@ abstract public class TestBucket {
     }
 
     //~~~~ Lifecycle management
-    public void beforeEach() {
-        // Initialize the S3Client
-        amazonS3 = S3Client.builder()
-                .region(Region.US_EAST_1) // Replace with your region
-                .build();
-
-        // Additional setup can go here
+    public void beforeEach(){
+        abortAllMultipartUploads();
+        removeAllObjects();
     }
 
     private void removeAllObjects() {

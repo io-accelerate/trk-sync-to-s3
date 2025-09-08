@@ -34,7 +34,7 @@ public class S3BucketDestinationTest {
     }
 
     @Test
-    public void startS3SyncSessionThrowsDestinationOperationException() {
+    public void startS3SyncSessionThrowsDestinationOperationException() throws DestinationOperationException {
         Assertions.assertThrows(DestinationOperationException.class, () -> {
             doThrow(exception).when(awsClient).putObject(any(PutObjectRequest.class), any(RequestBody.class));
             destination.startS3SyncSession();
@@ -68,12 +68,11 @@ public class S3BucketDestinationTest {
     @Test
     public void getAlreadyUploadedPartsRunsNormalWhenNextListingThrowsException() throws DestinationOperationException {
         ListMultipartUploadsResponse listing = mock(ListMultipartUploadsResponse.class);
-        when(listing.isTruncated()).thenReturn(true);
         when(awsClient.listMultipartUploads(any(ListMultipartUploadsRequest.class)))
                 .thenReturn(listing)
                 .thenThrow(exception);
 
-        Assertions.assertNull(destination.getAlreadyUploadedParts(""));
+        Assertions.assertTrue(destination.getAlreadyUploadedParts("").isEmpty());
     }
 
     @Test
@@ -84,7 +83,7 @@ public class S3BucketDestinationTest {
                 .thenReturn(listing)
                 .thenThrow(exception);
 
-        Assertions.assertNull(destination.getAlreadyUploadedParts(""));
+        Assertions.assertTrue(destination.getAlreadyUploadedParts("").isEmpty());
     }
 
     @Test
@@ -202,13 +201,9 @@ public class S3BucketDestinationTest {
                     doReturn(path).when(s3Object).key();
                     return s3Object;
                 }).collect(Collectors.toList());
-
-        List<S3Object> summaries1 = existingObjects.subList(0, 3);
-        List<S3Object> summaries2 = existingObjects.subList(3, 6);
-
+        
         when(listObjectsV2Response.contents())
-                .thenReturn(summaries1)
-                .thenReturn(summaries2);
+                .thenReturn(existingObjects);
 
         doReturn(listObjectsV2Response)
                 .when(awsClient)
