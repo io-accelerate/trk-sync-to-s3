@@ -1,10 +1,10 @@
 package io.accelerate.tracking.sync.upload;
 
-import com.amazonaws.services.s3.model.UploadPartRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import io.accelerate.tracking.sync.sync.destination.Destination;
 import io.accelerate.tracking.sync.sync.destination.DestinationOperationException;
+import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 
 import java.io.File;
 import java.io.IOException;
@@ -60,7 +60,7 @@ public class MultipartUploadFileTest {
                 .getFailedMiddlePartNumbers();
         doReturn(mock(UploadPartRequest.class))
                 .when(multipartUploadFile)
-                .getUploadPartRequestForData(any(), anyBoolean(), anyInt());
+                .getUploadPartRequestForData(any(), anyInt());
         doCallRealMethod().when(multipartUploadFile)
                 .streamUploadPartRequestForFailedParts();
 
@@ -81,8 +81,8 @@ public class MultipartUploadFileTest {
             }
         });
 
-        List<UploadPartRequest> requests = multipartUploadFile.streamUploadPartRequestForFailedParts()
-                .collect(Collectors.toList());
+        List<UploadPartRequestAndBody> requests = multipartUploadFile.streamUploadPartRequestForFailedParts()
+                .toList();
 
         assertEquals(3, requests.size());
     }

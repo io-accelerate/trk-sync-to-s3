@@ -1,11 +1,12 @@
 package io.accelerate.tracking.sync.upload;
 
-import com.amazonaws.services.s3.model.UploadPartRequest;
 import org.hamcrest.MatcherAssert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import io.accelerate.tracking.sync.sync.destination.Destination;
 import io.accelerate.tracking.sync.sync.destination.DestinationOperationException;
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 
 import java.util.List;
 import java.util.Objects;
@@ -39,18 +40,18 @@ public class ConcurrentMultipartUploaderTest {
     public void executionShouldHandleException() throws DestinationOperationException, InterruptedException {
         Destination destination = mock(Destination.class);
         MultipartUploadResult result = mock(MultipartUploadResult.class);
-        when(destination.uploadMultiPart(any()))
+        when(destination.uploadMultiPart(any(), any()))
                 .thenReturn(result)
                 .thenThrow(new DestinationOperationException(""));
 
         ConcurrentMultipartUploader uploader = new ConcurrentMultipartUploader(destination);
 
-        List<UploadPartRequest> requests = List.of(
-                mock(UploadPartRequest.class),
-                mock(UploadPartRequest.class)
+        List<UploadPartRequestAndBody> requests = List.of(
+                new UploadPartRequestAndBody(mock(UploadPartRequest.class),mock(RequestBody.class)),
+                new UploadPartRequestAndBody(mock(UploadPartRequest.class),mock(RequestBody.class))
         );
         List<MultipartUploadResult> streamResult = requests.stream()
-                .map(uploader::submitTaskForPartUploading)
+                .map((UploadPartRequestAndBody request) -> uploader.submitTaskForPartUploading(request.getUploadPartRequest(), request.getRequestBody()))
                 .map(future -> {
                     try {
                         return future.get();

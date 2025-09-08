@@ -1,13 +1,9 @@
 package io.accelerate.tracking.sync.upload;
 
-import com.amazonaws.services.s3.model.PartETag;
-import com.amazonaws.services.s3.model.PartListing;
-import com.amazonaws.services.s3.model.PartSummary;
+import software.amazon.awssdk.services.s3.model.CompletedPart;
+import software.amazon.awssdk.services.s3.model.Part;
 
-import java.util.Collection;
-import java.util.List;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -18,43 +14,74 @@ public final class MultipartUploadHelper {
     private MultipartUploadHelper() {
     }
 
-    static List<PartETag> getPartETagsFromPartListing(PartListing listing) {
-        Stream<PartSummary> partSummaryStream = Optional.ofNullable(listing)
-                .map(PartListing::getParts)
-                .map(Collection::stream)
-                .orElseGet(Stream::empty);
-
-        return partSummaryStream.map(partSummary -> new PartETag(partSummary.getPartNumber(), partSummary.getETag()))
+    /**
+     * Converts a list of already uploaded {@link Part} objects to a list of {@link CompletedPart} objects
+     * to be used for completing a multipart upload.
+     *
+     * @param parts List of uploaded parts.
+     * @return A list of {@link CompletedPart}.
+     */
+    static List<CompletedPart> convertPartsToCompletedParts(List<Part> parts) {
+        return Optional.ofNullable(parts)
+                .orElse(Collections.emptyList())
+                .stream()
+                .map(part -> CompletedPart.builder()
+                        .partNumber(part.partNumber())
+                        .eTag(part.eTag())
+                        .build())
                 .collect(Collectors.toList());
     }
 
-    static long getUploadedSize(PartListing partListing) {
-        return partListing.getParts().stream()
-                .mapToLong(PartSummary::getSize)
+    /**
+     * Calculates the total uploaded size from a list of uploaded {@link Part} objects.
+     *
+     * @param parts List of parts.
+     * @return The total size of uploaded parts in bytes.
+     */
+    static long getUploadedSize(List<Part> parts) {
+        return Optional.ofNullable(parts)
+                .orElse(Collections.emptyList())
+                .stream()
+                .mapToLong(Part::size)
                 .sum();
     }
 
-    static int getLastPartIndex(PartListing partListing) {
-        return partListing.getParts()
+    /**
+     * Gets the last uploaded part index from a list of {@link Part} objects.
+     *
+     * @param parts List of parts.
+     * @return The part number of the last uploaded part, or 0 if no parts are uploaded.
+     */
+    static int getLastPartIndex(List<Part> parts) {
+        return Optional.ofNullable(parts)
+                .orElse(Collections.emptyList())
                 .stream()
-                .mapToInt(PartSummary::getPartNumber)
+                .mapToInt(Part::partNumber)
                 .max()
                 .orElse(0);
     }
 
-    static Set<Integer> getFailedMiddlePartNumbers(PartListing partListing) {
+    /**
+     * Identifies the missing (i.e., failed or skipped) part numbers in the uploaded sequence.
+     *
+     * @param parts List of uploaded parts.
+     * @return A set of missing part numbers.
+     */
+    static Set<Integer> getFailedMiddlePartNumbers(List<Part> parts) {
         AtomicInteger lastPartNumber = new AtomicInteger(0);
-        Set<Integer> uploadedParts = partListing.getParts().stream()
-                .map(PartSummary::getPartNumber)
-                .peek(n -> {
-                    if (lastPartNumber.get() < n) {
-                        lastPartNumber.set(n);
+        Set<Integer> uploadedParts = Optional.ofNullable(parts)
+                .orElse(Collections.emptyList())
+                .stream()
+                .map(Part::partNumber)
+                .peek(partNumber -> {
+                    if (lastPartNumber.get() < partNumber) {
+                        lastPartNumber.set(partNumber);
                     }
                 })
                 .collect(Collectors.toSet());
 
         return IntStream.range(1, lastPartNumber.get())
-                .filter(n -> !uploadedParts.contains(n))
+                .filter(partNumber -> !uploadedParts.contains(partNumber))
                 .boxed()
                 .collect(Collectors.toSet());
     }

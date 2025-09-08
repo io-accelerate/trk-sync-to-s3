@@ -1,12 +1,12 @@
 package io.accelerate.tracking.sync.upload;
 
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.model.AmazonS3Exception;
-import com.amazonaws.services.s3.model.ListMultipartUploadsRequest;
-import com.amazonaws.services.s3.model.MultipartUpload;
-import com.amazonaws.services.s3.model.MultipartUploadListing;
-import org.slf4j.Logger;
 import io.accelerate.tracking.sync.sync.destination.DestinationOperationException;
+import org.slf4j.Logger;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.ListMultipartUploadsRequest;
+import software.amazon.awssdk.services.s3.model.ListMultipartUploadsResponse;
+import software.amazon.awssdk.services.s3.model.MultipartUpload;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 
 import java.util.Collection;
 import java.util.List;
@@ -19,65 +19,79 @@ import static org.slf4j.LoggerFactory.getLogger;
 public class MultipartUploadFinder {
     private static final Logger log = getLogger(MultipartUploadFinder.class);
 
-    private final AmazonS3 awsClient;
+    private final S3Client awsClient; // Use AWS SDK v2 S3Client
     private final String bucket;
     private final String prefix;
 
-    public MultipartUploadFinder(AmazonS3 awsClient, String bucket, String prefix) {
+    public MultipartUploadFinder(S3Client awsClient, String bucket, String prefix) {
         this.awsClient = awsClient;
         this.bucket = bucket;
         this.prefix = prefix;
     }
 
     public List<MultipartUpload> getAlreadyStartedMultipartUploads() throws DestinationOperationException {
+        // Create the initial request
         ListMultipartUploadsRequest uploadsRequest = createListMultipartUploadsRequest();
-        MultipartUploadListing multipartUploadListing = listMultipartUploads(uploadsRequest);
+        ListMultipartUploadsResponse multipartUploadResponse = listMultipartUploads(uploadsRequest);
 
-        Stream<MultipartUploadListing> stream = Stream.of(multipartUploadListing)
-                .flatMap(listing -> {
+        // Use Stream API for processing paginated responses
+        Stream<ListMultipartUploadsResponse> stream = Stream.of(multipartUploadResponse)
+                .flatMap(response -> {
                     try {
-                        return this.streamNextListing(listing);
+                        return this.streamNextListing(response);
                     } catch (DestinationOperationException ex) {
-                        log.error("Failed to stream next listing " + listing.getUploadIdMarker(), ex);
+                        log.error("Failed to stream next listing: bucket={} prefix={} uploadIdMarker={}",
+                                bucket, prefix, response.uploadIdMarker(), ex);
                         return null;
                     }
                 }).filter(Objects::nonNull);
 
-        return stream.map(MultipartUploadListing::getMultipartUploads)
+        // Flatten and map the results to a list of MultipartUpload
+        return stream
+                .map(ListMultipartUploadsResponse::uploads)
                 .flatMap(Collection::stream)
                 .collect(Collectors.toList());
     }
 
     private ListMultipartUploadsRequest createListMultipartUploadsRequest() {
-        ListMultipartUploadsRequest uploadsRequest = new ListMultipartUploadsRequest(bucket);
-        uploadsRequest.setPrefix(prefix);
-        return uploadsRequest;
+        // Create a request for multipart uploads with the bucket and prefix
+        return ListMultipartUploadsRequest.builder()
+                .bucket(bucket)
+                .prefix(prefix)
+                .build();
     }
 
-    private MultipartUploadListing listMultipartUploads(ListMultipartUploadsRequest request) throws DestinationOperationException {
+    private ListMultipartUploadsResponse listMultipartUploads(ListMultipartUploadsRequest request) throws DestinationOperationException {
         try {
+            // AWS SDK v2: Use S3Client to list multipart uploads
             return awsClient.listMultipartUploads(request);
-        } catch (AmazonS3Exception ex) {
-            throw new DestinationOperationException("Failed to list upload request: " + request.getBucketName() + "/" + request.getPrefix(), ex);
+        } catch (S3Exception ex) {
+            throw new DestinationOperationException(
+                    "Failed to list multipart uploads: bucket=" + request.bucket() + ", prefix=" + request.prefix(),
+                    ex
+            );
         }
     }
 
-    private Stream<MultipartUploadListing> streamNextListing(MultipartUploadListing listing) throws DestinationOperationException {
-        if (!listing.isTruncated()) {
-            return Stream.of(listing);
+    private Stream<ListMultipartUploadsResponse> streamNextListing(ListMultipartUploadsResponse response) throws DestinationOperationException {
+        // If there are no more pages, return the current response
+        if (!response.isTruncated()) {
+            return Stream.of(response);
         }
-        MultipartUploadListing nextListing = getNextListing(listing);
 
-        Stream<MultipartUploadListing> head = Stream.of(listing);
-        Stream<MultipartUploadListing> tail = streamNextListing(nextListing);
+        // Otherwise, retrieve the next set of uploads
+        ListMultipartUploadsRequest nextRequest = createListMultipartUploadsRequest()
+                .toBuilder() // Create a new request builder
+                .keyMarker(response.nextKeyMarker())
+                .uploadIdMarker(response.nextUploadIdMarker())
+                .build();
 
+        ListMultipartUploadsResponse nextResponse = listMultipartUploads(nextRequest);
+
+        Stream<ListMultipartUploadsResponse> head = Stream.of(response);
+        Stream<ListMultipartUploadsResponse> tail = streamNextListing(nextResponse);
+
+        // Concatenate the current response with subsequent responses
         return Stream.concat(head, tail);
-    }
-
-    private MultipartUploadListing getNextListing(MultipartUploadListing listing) throws DestinationOperationException {
-        ListMultipartUploadsRequest uploadsRequest = createListMultipartUploadsRequest();
-        uploadsRequest.setUploadIdMarker(listing.getNextUploadIdMarker());
-        uploadsRequest.setKeyMarker(listing.getNextKeyMarker());
-        return listMultipartUploads(uploadsRequest);
     }
 }

@@ -1,25 +1,34 @@
 package io.accelerate.tracking.sync.upload;
 
-import com.amazonaws.services.s3.model.UploadPartRequest;
-import com.amazonaws.services.s3.model.UploadPartResult;
+import software.amazon.awssdk.services.s3.model.UploadPartRequest;
+import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 public class MultipartUploadResult {
 
     private final UploadPartRequest request;
+    private final UploadPartResponse response;
 
-    private final UploadPartResult result;
-
-    public MultipartUploadResult(UploadPartRequest request, UploadPartResult result) {
+    public MultipartUploadResult(UploadPartRequest request, UploadPartResponse response) {
         this.request = request;
-        this.result = result;
+        this.response = response;
     }
 
+    /**
+     * Returns the upload part request associated with this result.
+     *
+     * @return The UploadPartRequest.
+     */
     public UploadPartRequest getRequest() {
         return request;
     }
 
-    public UploadPartResult getResult() {
-        return result;
+    /**
+     * Returns the upload part response containing details about the uploaded part.
+     *
+     * @return The UploadPartResponse.
+     */
+    public UploadPartResponse getResponse() {
+        return response;
     }
 
 }

@@ -1,15 +1,16 @@
 package io.accelerate.tracking.sync.upload;
 
-import com.amazonaws.services.s3.model.PartETag;
-import com.amazonaws.services.s3.model.PartListing;
-import com.amazonaws.services.s3.model.UploadPartRequest;
-import org.slf4j.Logger;
 import io.accelerate.tracking.sync.helpers.ByteHelper;
 import io.accelerate.tracking.sync.helpers.ChecksumHelper;
 import io.accelerate.tracking.sync.helpers.FileHelper;
 import io.accelerate.tracking.sync.sync.destination.Destination;
 import io.accelerate.tracking.sync.sync.destination.DestinationOperationException;
 import io.accelerate.tracking.sync.sync.progress.ProgressListener;
+import org.slf4j.Logger;
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.services.s3.model.CompletedPart;
+import software.amazon.awssdk.services.s3.model.Part;
+import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 
 import java.io.*;
 import java.util.*;
@@ -20,8 +21,7 @@ import static org.slf4j.LoggerFactory.getLogger;
 public class MultipartUploadFile {
     private static final Logger log = getLogger(MultipartUploadFile.class);
 
-
-    //Minimum part size is 5 MB
+    // Minimum part size is 5 MB
     private static final int MINIMUM_PART_SIZE = 5 * 1024 * 1024;
 
     private final File file;
@@ -34,13 +34,13 @@ public class MultipartUploadFile {
 
     private long uploadedSize = 0;
 
-    private PartListing alreadyUploadedParts;
+    private List<Part> alreadyUploadedParts;
 
     private Set<Integer> failedMiddlePartNumbers;
 
     private int nextPartToUploadIndex = 1;
 
-    private List<PartETag> partETags;
+    private List<CompletedPart> completedParts;
 
     private boolean isWritingFinished;
 
@@ -59,8 +59,8 @@ public class MultipartUploadFile {
         return uploadId;
     }
 
-    public List<PartETag> getPartETags() {
-        return partETags;
+    public List<CompletedPart> getCompletedParts() {
+        return completedParts;
     }
 
     public Set<Integer> getFailedMiddlePartNumbers() {
@@ -68,27 +68,30 @@ public class MultipartUploadFile {
     }
 
     private void init() throws DestinationOperationException {
-        alreadyUploadedParts = destination.getAlreadyUploadedParts(remotePath);
+        Optional<String> maybeExistingUploadId = destination.getExistingUploadId(remotePath);
         isWritingFinished = !FileHelper.lockFileExists(file);
-        boolean uploadingStarted = alreadyUploadedParts != null;
-        if (!uploadingStarted) {
+
+        if (maybeExistingUploadId.isEmpty()) {
             uploadId = destination.initUploading(remotePath);
+            alreadyUploadedParts = Collections.emptyList();
             failedMiddlePartNumbers = Collections.emptySet();
         } else {
-            uploadId = alreadyUploadedParts.getUploadId();
+            uploadId = maybeExistingUploadId.get();
+            alreadyUploadedParts = destination.getAlreadyUploadedParts(remotePath);
             failedMiddlePartNumbers = MultipartUploadHelper.getFailedMiddlePartNumbers(alreadyUploadedParts);
             uploadedSize = MultipartUploadHelper.getUploadedSize(alreadyUploadedParts);
             nextPartToUploadIndex = MultipartUploadHelper.getLastPartIndex(alreadyUploadedParts) + 1;
         }
-        partETags = MultipartUploadHelper.getPartETagsFromPartListing(alreadyUploadedParts);
+
+        completedParts = MultipartUploadHelper.convertPartsToCompletedParts(alreadyUploadedParts);
     }
 
     public void validateUploadedFileSize() {
         if (file.length() < uploadedSize) {
             throw new IllegalStateException(
                     "Already uploaded size of file " + file.getName()
-                    + " is greater than actual file size. "
-                    + "Probably file was changed and can't be uploaded now."
+                    + " is greater than the actual file size. "
+                    + "The file might have been modified and cannot be uploaded now."
             );
         }
     }
@@ -97,39 +100,35 @@ public class MultipartUploadFile {
         return new BufferedInputStream(new FileInputStream(file));
     }
 
-    public UploadPartRequest createUploadPartRequest() throws DestinationOperationException {
-        return destination.createUploadPartRequest(remotePath)
-                .withUploadId(uploadId);
-    }
-
-    public UploadPartRequest getUploadPartRequestForData(byte[] nextPart, boolean isLastPart, int partNumber) throws IOException, DestinationOperationException {
-        try (ByteArrayInputStream partInputStream = ByteHelper.createInputStream(nextPart)) {
-            UploadPartRequest request = createUploadPartRequest()
-                    .withPartNumber(partNumber)
-                    .withMD5Digest(ChecksumHelper.digest(nextPart, "MD5"))
-                    .withLastPart(isLastPart)
-                    .withPartSize(nextPart.length)
-                    .withInputStream(partInputStream);
-            return request;
-        }
+    public UploadPartRequestAndBody getUploadPartRequestForData(byte[] nextPart, int partNumber) {
+        UploadPartRequest uploadPartRequest = UploadPartRequest.builder()
+                .uploadId(uploadId)
+                .bucket(destination.getBucketName()) // Assuming destination has bucket name
+                .key(remotePath)
+                .partNumber(partNumber)
+                .contentMD5(ChecksumHelper.digest(nextPart, "MD5"))
+                .contentLength((long) nextPart.length)
+                .build();
+        RequestBody requestBody = RequestBody.fromInputStream(ByteHelper.createInputStream(nextPart), nextPart.length);
+        return new UploadPartRequestAndBody(uploadPartRequest, requestBody);
     }
 
     public void commitIfFinishedWriting() throws DestinationOperationException {
         if (isWritingFinished) {
-            destination.commitMultipartUpload(remotePath, partETags, uploadId);
+            destination.commitMultipartUpload(remotePath, completedParts, uploadId);
         }
     }
 
-    public Stream<UploadPartRequest> streamUploadPartRequestForFailedParts() {
+    public Stream<UploadPartRequestAndBody> streamUploadPartRequestForFailedParts() {
         return getFailedMiddlePartNumbers()
                 .stream()
                 .map(partNumber -> {
                     try {
                         byte[] partData = readPart(partNumber);
-                        UploadPartRequest request = getUploadPartRequestForData(partData, false, partNumber);
+                        UploadPartRequestAndBody request = getUploadPartRequestForData(partData, partNumber);
                         uploadedSize += partData.length;
                         return request;
-                    } catch (IOException | DestinationOperationException ex) {
+                    } catch (IOException ex) {
                         log.error("Cannot upload part " + partNumber, ex);
                         return null;
                     }
@@ -149,14 +148,14 @@ public class MultipartUploadFile {
         listener.uploadFileFinished(file);
     }
 
-    public Stream<UploadPartRequest> streamUploadPartRequestForIncompleteParts() throws IOException, DestinationOperationException {
+    public Stream<UploadPartRequestAndBody> streamUploadPartRequestForIncompleteParts() throws IOException, DestinationOperationException {
         try (InputStream inputStream = createBufferedInputStreamFromFile()) {
             byte[] nextPart = ByteHelper.getNextPartFromInputStream(inputStream, uploadedSize, isWritingFinished);
             int partSize = nextPart.length;
-            List<UploadPartRequest> requests = new ArrayList<>();
+            List<UploadPartRequestAndBody> requests = new ArrayList<>();
             while (partSize > 0) {
                 boolean isLastPart = isWritingFinished && partSize < MINIMUM_PART_SIZE;
-                UploadPartRequest request = getUploadPartRequestForData(nextPart, isLastPart, nextPartToUploadIndex);
+                UploadPartRequestAndBody request = getUploadPartRequestForData(nextPart, nextPartToUploadIndex);
                 nextPartToUploadIndex++;
                 requests.add(request);
                 nextPart = ByteHelper.getNextPartFromInputStream(inputStream, 0, isWritingFinished);

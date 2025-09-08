@@ -1,8 +1,9 @@
 package io.accelerate.tracking.sync.upload;
 
-import com.amazonaws.services.s3.model.UploadPartRequest;
 import io.accelerate.tracking.sync.sync.destination.Destination;
 import io.accelerate.tracking.sync.sync.destination.DestinationOperationException;
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 
 import java.util.concurrent.*;
 
@@ -42,15 +43,15 @@ public class ConcurrentMultipartUploader {
         }
     }
 
-    Future<MultipartUploadResult> submitTaskForPartUploading(UploadPartRequest request) {
-        Callable<MultipartUploadResult> task = createCallableForPartUploadingAndReturnETag(request);
+    Future<MultipartUploadResult> submitTaskForPartUploading(UploadPartRequest request, RequestBody requestBody) {
+        Callable<MultipartUploadResult> task = createCallableForPartUploadingAndReturnETag(request, requestBody);
         return getExecutorService().submit(task);
     }
 
-    private Callable<MultipartUploadResult> createCallableForPartUploadingAndReturnETag(UploadPartRequest request) {
+    private Callable<MultipartUploadResult> createCallableForPartUploadingAndReturnETag(UploadPartRequest request, RequestBody requestBody) {
         return () -> {
             try {
-                return destination.uploadMultiPart(request);
+                return destination.uploadMultiPart(request, requestBody);
             } catch (DestinationOperationException e) {
                 throw e;
             }

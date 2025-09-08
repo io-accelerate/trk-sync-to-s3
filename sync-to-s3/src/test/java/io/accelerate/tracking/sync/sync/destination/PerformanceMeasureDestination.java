@@ -1,12 +1,13 @@
 package io.accelerate.tracking.sync.sync.destination;
 
-import com.amazonaws.services.s3.model.PartETag;
-import com.amazonaws.services.s3.model.PartListing;
-import com.amazonaws.services.s3.model.UploadPartRequest;
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.services.s3.model.CompletedPart;
+import software.amazon.awssdk.services.s3.model.Part;
+import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import io.accelerate.tracking.sync.upload.MultipartUploadResult;
 
 import java.util.List;
-
+import java.util.Optional;
 
 public class PerformanceMeasureDestination implements Destination {
     private final Destination destination;
@@ -40,27 +41,36 @@ public class PerformanceMeasureDestination implements Destination {
     }
 
     @Override
-    public PartListing getAlreadyUploadedParts(String remotePath) throws DestinationOperationException {
+    public List<Part> getAlreadyUploadedParts(String remotePath) throws DestinationOperationException {
         performanceScore += 1;
         return destination.getAlreadyUploadedParts(remotePath);
     }
 
     @Override
-    public MultipartUploadResult uploadMultiPart(UploadPartRequest request) throws DestinationOperationException {
+    public MultipartUploadResult uploadMultiPart(UploadPartRequest request, RequestBody requestBody) throws DestinationOperationException {
         performanceScore += 1000;
-        return destination.uploadMultiPart(request);
+        return destination.uploadMultiPart(request, requestBody);
     }
 
     @Override
-    public void commitMultipartUpload(String remotePath, List<PartETag> eTags, String uploadId) throws DestinationOperationException {
+    public void commitMultipartUpload(String remotePath, List<CompletedPart> eTags, String uploadId) throws DestinationOperationException {
         performanceScore += 1;
         destination.commitMultipartUpload(remotePath, eTags, uploadId);
     }
 
     @Override
     public UploadPartRequest createUploadPartRequest(String remotePath) throws DestinationOperationException {
-        performanceScore += 0;
         return destination.createUploadPartRequest(remotePath);
+    }
+
+    @Override
+    public String getBucketName() {
+        return destination.getBucketName();
+    }
+
+    @Override
+    public Optional<String> getExistingUploadId(String remotePath) throws DestinationOperationException {
+        return Optional.empty();
     }
 
     @Override
@@ -68,5 +78,4 @@ public class PerformanceMeasureDestination implements Destination {
         performanceScore += 1;
         return destination.filterUploadableFiles(relativePaths);
     }
-
 }

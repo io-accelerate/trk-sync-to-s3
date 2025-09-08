@@ -1,11 +1,9 @@
 package io.accelerate.tracking.sync.credentials;
 
-import com.amazonaws.auth.AWSCredentials;
-import com.amazonaws.auth.AWSStaticCredentialsProvider;
-import com.amazonaws.auth.BasicAWSCredentials;
-import com.amazonaws.auth.BasicSessionCredentials;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.AmazonS3ClientBuilder;
+import software.amazon.awssdk.auth.credentials.*;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.S3Client;
+
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -23,7 +21,7 @@ import java.util.Properties;
  *  - s3_bucket
  */
 public class AWSSecretProperties {
-    private Properties privateProperties;
+    private final Properties privateProperties;
 
     private AWSSecretProperties(Properties privateProperties) {
         this.privateProperties = privateProperties;
@@ -37,27 +35,19 @@ public class AWSSecretProperties {
         return new AWSSecretProperties(privateProperties);
     }
 
-    public AmazonS3 createClient() {
+    public S3Client createClient() {
         String awsAccessKeyId = privateProperties.getProperty("aws_access_key_id");
         String awsSecretAccessKey = privateProperties.getProperty("aws_secret_access_key");
-        String awsSessionToken = privateProperties.getProperty("aws_session_token");
         String s3Region = privateProperties.getProperty("s3_region");
 
-        AWSCredentials awsCredentials;
-        if (awsSessionToken != null) {
-            awsCredentials = new BasicSessionCredentials(
-                    awsAccessKeyId,
-                    awsSecretAccessKey,
-                    awsSessionToken);
-        } else {
-            awsCredentials = new BasicAWSCredentials(
-                    awsAccessKeyId,
-                    awsSecretAccessKey);
-        }
+        AwsBasicCredentials awsCredentials = AwsBasicCredentials.create(
+                awsAccessKeyId,
+                awsSecretAccessKey
+        );
 
-        return AmazonS3ClientBuilder.standard()
-                .withCredentials(new AWSStaticCredentialsProvider(awsCredentials))
-                .withRegion(s3Region)
+        return S3Client.builder()
+                .credentialsProvider(StaticCredentialsProvider.create(awsCredentials))
+                .region(Region.of(s3Region))
                 .build();
     }
 

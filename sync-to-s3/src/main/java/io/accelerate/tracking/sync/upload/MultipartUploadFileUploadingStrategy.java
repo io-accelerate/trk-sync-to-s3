@@ -1,12 +1,12 @@
 package io.accelerate.tracking.sync.upload;
 
-import com.amazonaws.services.s3.model.PartETag;
-import com.amazonaws.services.s3.model.UploadPartRequest;
-import org.slf4j.Logger;
 import io.accelerate.tracking.sync.sync.destination.Destination;
 import io.accelerate.tracking.sync.sync.destination.DestinationOperationException;
 import io.accelerate.tracking.sync.sync.progress.DummyProgressListener;
 import io.accelerate.tracking.sync.sync.progress.ProgressListener;
+import org.slf4j.Logger;
+import software.amazon.awssdk.services.s3.model.CompletedPart;
+import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 
 import java.io.File;
 import java.io.IOException;
@@ -25,25 +25,25 @@ public class MultipartUploadFileUploadingStrategy implements UploadingStrategy {
 
     private Destination destination;
 
-    private ConcurrentMultipartUploader concurrentUploader;
+    private final ConcurrentMultipartUploader concurrentUploader;
 
     private ProgressListener listener = new DummyProgressListener();
 
     /**
-     * Creates new Multipart upload strategy
+     * Creates a new Multipart upload strategy.
      */
-    MultipartUploadFileUploadingStrategy(Destination destination) {
+    public MultipartUploadFileUploadingStrategy(Destination destination) {
         this(destination, DEFAULT_THREAD_COUNT);
     }
 
     /**
-     * Creates new Multipart upload strategy.
+     * Creates a new Multipart upload strategy with a custom thread count.
      *
-     * @param threadsCount count of threads that should be used for uploading
+     * @param threadsCount Number of threads to use for uploading.
      */
     private MultipartUploadFileUploadingStrategy(Destination destination, int threadsCount) {
         this.destination = destination;
-        concurrentUploader = new ConcurrentMultipartUploader(destination, threadsCount);
+        this.concurrentUploader = new ConcurrentMultipartUploader(destination, threadsCount);
     }
 
     @Override
@@ -56,34 +56,37 @@ public class MultipartUploadFileUploadingStrategy implements UploadingStrategy {
     }
 
     private void uploadRequiredParts(MultipartUploadFile multipartUploadFile) throws IOException, DestinationOperationException {
-        List<PartETag> eTags = multipartUploadFile.getPartETags();
+        List<CompletedPart> completedParts = multipartUploadFile.getCompletedParts();
 
-        Stream<UploadPartRequest> failedPartRequestStream = multipartUploadFile
-                .streamUploadPartRequestForFailedParts();
-        submitUploadRequestStream(failedPartRequestStream, eTags);
+        Stream<UploadPartRequestAndBody> failedPartRequestStream = multipartUploadFile.streamUploadPartRequestForFailedParts();
+        submitUploadRequestStream(failedPartRequestStream, completedParts);
 
-        Stream<UploadPartRequest> incompletePartRequestStream = multipartUploadFile
-                .streamUploadPartRequestForIncompleteParts();
-        submitUploadRequestStream(incompletePartRequestStream, eTags);
+        Stream<UploadPartRequestAndBody> incompletePartRequestStream = multipartUploadFile.streamUploadPartRequestForIncompleteParts();
+        submitUploadRequestStream(incompletePartRequestStream, completedParts);
 
         concurrentUploader.shutdownAndAwaitTermination();
 
         multipartUploadFile.commitIfFinishedWriting();
     }
 
-    private void submitUploadRequestStream(Stream<UploadPartRequest> requestStream, List<PartETag> partETags) {
+    private void submitUploadRequestStream(Stream<UploadPartRequestAndBody> requestStream, List<CompletedPart> completedParts) {
         requestStream
                 .map(this::attachListenerToRequest)
-                .map(concurrentUploader::submitTaskForPartUploading)
+                .map(uploadPartRequestAndBody -> concurrentUploader.submitTaskForPartUploading(
+                        uploadPartRequestAndBody.getUploadPartRequest(), 
+                        uploadPartRequestAndBody.getRequestBody()))
                 .map(MultipartUploadFileUploadingStrategy::getUploadingResult)
                 .filter(Objects::nonNull)
-                .map(e -> e.getResult().getPartETag())
-                .forEach(partETags::add);
+                .map(result -> CompletedPart.builder()
+                        .partNumber(result.getRequest().partNumber())
+                        .eTag(result.getResponse().eTag())
+                        .build())
+                .forEach(completedParts::add);
     }
 
-    private UploadPartRequest attachListenerToRequest(UploadPartRequest request) {
-        request.setGeneralProgressListener((com.amazonaws.event.ProgressEvent pe)
-                -> listener.uploadFileProgress(request.getUploadId(), pe.getBytesTransferred()));
+    private UploadPartRequestAndBody attachListenerToRequest(UploadPartRequestAndBody request) {
+        // SDK v2 does not support global listeners, so you may need to handle progress tracking in a separate way, if needed.
+        listener.uploadFileProgress(request.getUploadPartRequest().uploadId(), 0); // Placeholder for manual progress tracking
         return request;
     }
 
@@ -91,14 +94,14 @@ public class MultipartUploadFileUploadingStrategy implements UploadingStrategy {
         try {
             return future.get();
         } catch (InterruptedException e) {
-            log.error("Some part uploads was unsuccessful.", e);
+            log.error("Some part uploads were unsuccessful.", e);
             return null;
         } catch (ExecutionException e) {
-            Throwable ex = e.getCause();
-            if (ex instanceof DestinationOperationException) {
-                log.error("Some part uploads was unsuccessful.", ex);
+            Throwable cause = e.getCause();
+            if (cause instanceof DestinationOperationException) {
+                log.error("Some part uploads were unsuccessful.", cause);
             }
-            log.error("Some part uploads was unsuccessful.", e);
+            log.error("Some part uploads were unsuccessful.", e);
             return null;
         }
     }

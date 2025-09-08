@@ -1,23 +1,23 @@
 package io.accelerate.tracking.sync.sync.destination;
 
-import com.amazonaws.auth.AWSCredentials;
-import com.amazonaws.auth.AWSCredentialsProvider;
-import com.amazonaws.regions.Regions;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.AmazonS3ClientBuilder;
-import com.amazonaws.services.s3.model.*;
 import io.accelerate.tracking.sync.upload.MultipartUploadFinder;
 import io.accelerate.tracking.sync.upload.MultipartUploadResult;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.*;
+import software.amazon.awssdk.core.sync.RequestBody;
 
 import java.util.*;
 import java.util.stream.Collectors;
 
 public class S3BucketDestination implements Destination {
-    private final AmazonS3 awsClient;
+    private final S3Client awsClient;
     private final String bucket;
     private final String prefix;
 
-    public S3BucketDestination(AmazonS3 awsClient, String bucket, String prefix) {
+    public S3BucketDestination(S3Client awsClient, String bucket, String prefix) {
         this.awsClient = awsClient;
         this.bucket = bucket;
         this.prefix = prefix;
@@ -26,50 +26,57 @@ public class S3BucketDestination implements Destination {
     // ~~~~ Public methods
 
     /**
-     * If this method fails, stop everything
+     * If this method fails, stop everything.
      */
     public static void runSanityCheck() {
-        // Try to reach out to the S3
-        // If this fails, it means we do not have AWS S3
-        // It is better to fail fast
-        AmazonS3ClientBuilder.standard()
-                .withCredentials(new AWSCredentialsProvider() {
-                    @Override
-                    public AWSCredentials getCredentials() { return null; }
+        AwsCredentialsProvider creds = DefaultCredentialsProvider.create(); // uses the default chain
 
-                    @Override
-                    public void refresh() { }
-                })
-                .withRegion(Regions.EU_WEST_2)
-                .build().getBucketAcl("ping.s3.accelerate.io");
+        try (S3Client s3 = S3Client.builder()
+                .region(Region.EU_WEST_2)
+                .credentialsProvider(creds)
+                .build()) {
+
+            s3.getBucketAcl(GetBucketAclRequest.builder()
+                    .bucket("ping.s3.accelerate.io")
+                    .build());
+        } catch (S3Exception e) {
+            // Re-throw or log as startup failure
+            throw new IllegalStateException("S3 sanity check failed: " + e.awsErrorDetails().errorMessage(), e);
+        }
     }
-
-
 
     @Override
     public void startS3SyncSession() throws DestinationOperationException {
         try {
-            // Upload a file to S3 to prove that the user if not expired and has write permissions to the bucket + prefix
-            awsClient.putObject(bucket, prefix + "last_sync_start.txt", "timestamp: " + System.currentTimeMillis());
-        } catch (AmazonS3Exception ex) {
-            throw new DestinationOperationException(ex.getMessage(), ex);
+            String objectKey = prefix + "last_sync_start.txt";
+            awsClient.putObject(PutObjectRequest.builder()
+                    .bucket(bucket)
+                    .key(objectKey)
+                    .build(), RequestBody.fromString("timestamp: " + System.currentTimeMillis())
+            );
+        } catch (S3Exception ex) {
+            throw new DestinationOperationException("Failed to start S3 sync session", ex);
         }
     }
 
     @Override
     public void stopS3SyncSession() throws DestinationOperationException {
         try {
-            // Upload a file to S3 to prove that the user if not expired and has write permissions to the bucket + prefix
-            awsClient.putObject(bucket, prefix + "last_sync_stop.txt", "timestamp: " + System.currentTimeMillis());
-        } catch (AmazonS3Exception ex) {
-            throw new DestinationOperationException(ex.getMessage(), ex);
+            String objectKey = prefix + "last_sync_stop.txt";
+            awsClient.putObject(PutObjectRequest.builder()
+                    .bucket(bucket)
+                    .key(objectKey)
+                    .build(), RequestBody.fromString("timestamp: " + System.currentTimeMillis())
+            );
+        } catch (S3Exception ex) {
+            throw new DestinationOperationException("Failed to stop S3 sync session", ex);
         }
     }
 
     @Override
     public List<String> filterUploadableFiles(List<String> paths) {
         Set<String> existingItems = listAllObjects().stream()
-                .map(S3ObjectSummary::getKey)
+                .map(S3Object::key)
                 .collect(Collectors.toSet());
 
         int trimLength = prefix.length();
@@ -80,98 +87,135 @@ public class S3BucketDestination implements Destination {
                 .collect(Collectors.toList());
     }
 
-    private Set<S3ObjectSummary> listAllObjects() {
-        ListObjectsRequest request = new ListObjectsRequest()
-                .withBucketName(bucket)
-                .withPrefix(prefix);
-        ObjectListing result;
-        Set<S3ObjectSummary> summaries = new HashSet<>();
-        do {
-            result = awsClient.listObjects(request);
-            request.setMarker(result.getNextMarker());
-            summaries.addAll(result.getObjectSummaries());
-        } while (result.isTruncated());
-        return summaries;
+    private Set<S3Object> listAllObjects() {
+        ListObjectsV2Request request = ListObjectsV2Request.builder()
+                .bucket(bucket)
+                .prefix(prefix)
+                .build();
+
+        ListObjectsV2Response result = awsClient.listObjectsV2(request);
+        return new HashSet<>(result.contents());
     }
 
     @Override
     public String initUploading(String remotePath) throws DestinationOperationException {
-        String path = getFullPath(remotePath);
+        String fullPath = getFullPath(remotePath);
         try {
-            InitiateMultipartUploadRequest request = new InitiateMultipartUploadRequest(bucket, path);
-            InitiateMultipartUploadResult result = awsClient.initiateMultipartUpload(request);
-            return result.getUploadId();
-        } catch (AmazonS3Exception ex) {
-            throw new DestinationOperationException("Fail to initialize uploading process: " + path, ex);
+            CreateMultipartUploadRequest request = CreateMultipartUploadRequest.builder()
+                    .bucket(bucket)
+                    .key(fullPath)
+                    .build();
+
+            CreateMultipartUploadResponse response = awsClient.createMultipartUpload(request);
+            return response.uploadId();
+        } catch (S3Exception ex) {
+            throw new DestinationOperationException("Failed to initialize uploading: " + fullPath, ex);
         }
     }
+    
+    
 
     @Override
-    public PartListing getAlreadyUploadedParts(String remotePath) throws DestinationOperationException {
+    public List<Part> getAlreadyUploadedParts(String remotePath) throws DestinationOperationException {
         MultipartUpload multipartUpload = findOrNull(remotePath);
 
-        return Optional.ofNullable(multipartUpload)
-                .map(MultipartUpload::getUploadId)
-                .map(id -> getPartListing(remotePath, id))
-                .orElse(null);
+        if (multipartUpload == null) {
+            return Collections.emptyList();
+        }
+        
+        String id = multipartUpload.uploadId();
+        if (id == null) {
+            return Collections.emptyList();
+        }
+        
+        List<Part> parts = listUploadedParts(remotePath, id);
+        if (parts == null) {
+            return Collections.emptyList();
+        }
+        
+        return parts;
     }
 
     @Override
-    public MultipartUploadResult uploadMultiPart(UploadPartRequest request) throws DestinationOperationException {
+    public MultipartUploadResult uploadMultiPart(UploadPartRequest request, RequestBody requestBody) throws DestinationOperationException {
         try {
-            UploadPartResult result = awsClient.uploadPart(request);
+            UploadPartResponse result = awsClient.uploadPart(request, requestBody);
             return new MultipartUploadResult(request, result);
-        } catch (AmazonS3Exception ex) {
-            throw new DestinationOperationException("Fail to upload multipart: " + request.getKey() + " #" + request.getPartNumber(), ex);
+        } catch (S3Exception ex) {
+            throw new DestinationOperationException("Failed to upload multipart: " + request.key() + " #" + request.partNumber(), ex);
         }
     }
 
     @Override
-    public void commitMultipartUpload(String remotePath, List<PartETag> eTags, String uploadId) throws DestinationOperationException {
-        eTags.sort(Comparator.comparing(PartETag::getPartNumber));
-        CompleteMultipartUploadRequest request = new CompleteMultipartUploadRequest(
-                bucket,
-                getFullPath(remotePath),
-                uploadId,
-                eTags
-        );
-        completeMultipartUpload(request);
+    public void commitMultipartUpload(String remotePath, List<CompletedPart> eTags, String uploadId) throws DestinationOperationException {
+        try {
+            CompleteMultipartUploadRequest request = CompleteMultipartUploadRequest.builder()
+                    .bucket(bucket)
+                    .key(getFullPath(remotePath))
+                    .uploadId(uploadId)
+                    .multipartUpload(CompletedMultipartUpload.builder().parts(eTags).build())
+                    .build();
+
+            awsClient.completeMultipartUpload(request);
+        } catch (S3Exception ex) {
+            throw new DestinationOperationException("Failed to complete multipart upload", ex);
+        }
     }
 
     @Override
     public UploadPartRequest createUploadPartRequest(String remotePath) {
-        return new UploadPartRequest()
-                .withBucketName(bucket)
-                .withKey(getFullPath(remotePath));
+        return UploadPartRequest.builder()
+                .bucket(bucket)
+                .key(getFullPath(remotePath))
+                .build();
     }
-    // ~~~ MultiPart Helpers
 
-    private void completeMultipartUpload(CompleteMultipartUploadRequest request) throws DestinationOperationException {
-        try {
-            awsClient.completeMultipartUpload(request);
-        } catch (AmazonS3Exception ex) {
-            throw new DestinationOperationException("Failed to complete multipart request: " + request.getKey(), ex);
-        }
+    @Override
+    public String getBucketName() {
+        return bucket;
     }
+
+    @Override
+    public Optional<String> getExistingUploadId(String remotePath) throws DestinationOperationException {
+        MultipartUpload multipartUpload = findOrNull(remotePath);
+
+        if (multipartUpload == null) {
+            return Optional.empty();
+        }
+
+        String id = multipartUpload.uploadId();
+        if (id == null) {
+            return Optional.empty();
+        }
+        return Optional.of(id);
+    }
+
+    // ~~~ MultiPart Helpers
 
     private MultipartUpload findOrNull(String remotePath) throws DestinationOperationException {
         MultipartUploadFinder finder = new MultipartUploadFinder(awsClient, bucket, prefix);
         List<MultipartUpload> uploads = finder.getAlreadyStartedMultipartUploads();
         return uploads.stream()
-                .filter(upload -> upload.getKey().equals(getFullPath(remotePath)))
-                .findAny()
+                .filter(upload -> upload.key().equals(getFullPath(remotePath)))
+                .findFirst()
                 .orElse(null);
     }
-    // ~~~ Part Helpers
 
-    private PartListing getPartListing(String remotePath, String uploadId) {
-        ListPartsRequest request = new ListPartsRequest(bucket, getFullPath(remotePath), uploadId);
-        return listParts(request);
+    private List<Part> listUploadedParts(String remotePath, String uploadId) throws DestinationOperationException {
+        try {
+            ListPartsRequest request = ListPartsRequest.builder()
+                    .bucket(bucket)
+                    .key(getFullPath(remotePath))
+                    .uploadId(uploadId)
+                    .build();
+
+            ListPartsResponse response = awsClient.listParts(request);
+            return response.parts();
+        } catch (S3Exception ex) {
+            throw new DestinationOperationException("Failed to list uploaded parts", ex);
+        }
     }
 
-    private PartListing listParts(ListPartsRequest request) {
-        return awsClient.listParts(request);
-    }
     // ~~~ Path helpers
 
     private String getFullPath(String path) {

@@ -1,11 +1,13 @@
 package io.accelerate.tracking.sync.sync.destination;
 
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.model.*;
 import org.hamcrest.MatcherAssert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import software.amazon.awssdk.awscore.exception.AwsServiceException;
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.*;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -20,21 +22,21 @@ public class S3BucketDestinationTest {
 
     private static final String SOME_BUCKET = "some_bucket";
     private static final String PREFIX = "prefix/";
-    private AmazonS3 awsClient;
-    private AmazonS3Exception exception;
+    private S3Client awsClient;
+    private AwsServiceException exception;
     private Destination destination;
 
     @BeforeEach
     public void setUp() {
-        awsClient = mock(AmazonS3.class);
-        exception = mock(AmazonS3Exception.class);
+        awsClient = mock(S3Client.class);
+        exception = mock(AwsServiceException.class);
         destination = new S3BucketDestination(awsClient, SOME_BUCKET, PREFIX);
     }
 
     @Test
     public void startS3SyncSessionThrowsDestinationOperationException() {
         Assertions.assertThrows(DestinationOperationException.class, () -> {
-            doThrow(exception).when(awsClient).putObject(any(), any(), anyString());
+            doThrow(exception).when(awsClient).putObject(any(PutObjectRequest.class), any(RequestBody.class));
             destination.startS3SyncSession();
         });
     }
@@ -42,7 +44,7 @@ public class S3BucketDestinationTest {
     @Test
     public void stopS3SyncSessionThrowsDestinationOperationException() {
         Assertions.assertThrows(DestinationOperationException.class, () -> {
-            doThrow(exception).when(awsClient).putObject(any(), any(), anyString());
+            doThrow(exception).when(awsClient).putObject(any(PutObjectRequest.class), any(RequestBody.class));
             destination.stopS3SyncSession();
         });
     }
@@ -50,7 +52,7 @@ public class S3BucketDestinationTest {
     @Test
     public void initUploadingThrowsDestinationOperationException() {
         Assertions.assertThrows(DestinationOperationException.class, () -> {
-            doThrow(exception).when(awsClient).initiateMultipartUpload(any());
+            doThrow(exception).when(awsClient).createMultipartUpload(any(CreateMultipartUploadRequest.class));
             destination.initUploading("");
         });
     }
@@ -58,16 +60,16 @@ public class S3BucketDestinationTest {
     @Test
     public void getAlreadyUploadedPartsThrowsDestinationOperationExceptionWhenListMultipartUploadsThrowsException() throws DestinationOperationException {
         Assertions.assertThrows(DestinationOperationException.class, () -> {
-            doThrow(exception).when(awsClient).listMultipartUploads(any());
+            doThrow(exception).when(awsClient).listMultipartUploads(any(ListMultipartUploadsRequest.class));
             destination.getAlreadyUploadedParts("");
         });
     }
 
     @Test
     public void getAlreadyUploadedPartsRunsNormalWhenNextListingThrowsException() throws DestinationOperationException {
-        MultipartUploadListing listing = mock(MultipartUploadListing.class);
+        ListMultipartUploadsResponse listing = mock(ListMultipartUploadsResponse.class);
         when(listing.isTruncated()).thenReturn(true);
-        when(awsClient.listMultipartUploads(any()))
+        when(awsClient.listMultipartUploads(any(ListMultipartUploadsRequest.class)))
                 .thenReturn(listing)
                 .thenThrow(exception);
 
@@ -76,9 +78,9 @@ public class S3BucketDestinationTest {
 
     @Test
     public void getAlreadyUploadedPartsRunsNormalWhenStreamNextListingThrowsException() throws DestinationOperationException {
-        MultipartUploadListing listing = mock(MultipartUploadListing.class);
+        ListMultipartUploadsResponse listing = mock(ListMultipartUploadsResponse.class);
         when(listing.isTruncated()).thenReturn(false);
-        when(awsClient.listMultipartUploads(any()))
+        when(awsClient.listMultipartUploads(any(ListMultipartUploadsRequest.class)))
                 .thenReturn(listing)
                 .thenThrow(exception);
 
@@ -88,8 +90,8 @@ public class S3BucketDestinationTest {
     @Test
     public void commitMultipartUploadThrowsDestinationOperationException() throws DestinationOperationException {
         Assertions.assertThrows(DestinationOperationException.class, () -> {
-            doThrow(exception).when(awsClient).completeMultipartUpload(any());
-            List<PartETag> eTags = Arrays.asList(mock(PartETag.class), mock(PartETag.class));
+            doThrow(exception).when(awsClient).completeMultipartUpload(any(CompleteMultipartUploadRequest.class));
+            List<CompletedPart> eTags = Arrays.asList(mock(CompletedPart.class), mock(CompletedPart.class));
             destination.commitMultipartUpload("", eTags, "");
         });
     }
@@ -98,8 +100,9 @@ public class S3BucketDestinationTest {
     public void uploadMultiPartThrowsDestinationOperationException() throws DestinationOperationException {
         Assertions.assertThrows(DestinationOperationException.class, () -> {
             UploadPartRequest request = mock(UploadPartRequest.class);
-            doThrow(exception).when(awsClient).uploadPart(any());
-            destination.uploadMultiPart(request);
+            RequestBody requestBody = mock(RequestBody.class);
+            doThrow(exception).when(awsClient).uploadPart(any(UploadPartRequest.class), any(RequestBody.class));
+            destination.uploadMultiPart(request, requestBody);
         });
     }
 
@@ -112,13 +115,10 @@ public class S3BucketDestinationTest {
     @Test
     public void filterUploadableFilesShouldAcceptAllIfS3DirectoryIsEmpty() throws DestinationOperationException {
 
-        ObjectListing listing = mock(ObjectListing.class);
-        List<S3ObjectSummary> summaries = new ArrayList<>();
-        doReturn(summaries).when(listing).getObjectSummaries();
-        doReturn(false).when(listing).isTruncated();
-        doReturn(null).when(listing).getNextMarker();
+        ListObjectsV2Response listObjectsV2Response = mock(ListObjectsV2Response.class);
+        doReturn(List.of()).when(listObjectsV2Response).contents();
 
-        doReturn(listing).when(awsClient).listObjects((ListObjectsRequest) any());
+        doReturn(listObjectsV2Response).when(awsClient).listObjectsV2(any(ListObjectsV2Request.class));
 
         List<String> paths = Arrays.asList(
                 "file1.txt",
@@ -145,26 +145,23 @@ public class S3BucketDestinationTest {
     @Test
     public void filterUploadableFilesShouldRemoveFilesExistingInS3Directory() throws DestinationOperationException {
 
-        ObjectListing listing = mock(ObjectListing.class);
+        ListObjectsV2Response listObjectsV2Response = mock(ListObjectsV2Response.class);
 
         List<String> existingPaths = Arrays.asList(
                 PREFIX + "file1.txt",
                 PREFIX + "subdir/file2.txt",
                 PREFIX + "file6.txt"
         );
-
-        List<S3ObjectSummary> summaries = existingPaths.stream()
+        
+        List<S3Object> existingObjects = existingPaths.stream()
                 .map(path -> {
-                    S3ObjectSummary summary = mock(S3ObjectSummary.class);
-                    doReturn(path).when(summary).getKey();
-                    return summary;
+                    S3Object s3Object = mock(S3Object.class);
+                    doReturn(path).when(s3Object).key();
+                    return s3Object;
                 }).collect(Collectors.toList());
 
-        doReturn(summaries).when(listing).getObjectSummaries();
-        doReturn(false).when(listing).isTruncated();
-        doReturn(null).when(listing).getNextMarker();
-
-        doReturn(listing).when(awsClient).listObjects((ListObjectsRequest) any());
+        doReturn(existingObjects).when(listObjectsV2Response).contents();
+        doReturn(listObjectsV2Response).when(awsClient).listObjectsV2(any(ListObjectsV2Request.class));
 
         List<String> paths = Arrays.asList(
                 "file1.txt",
@@ -188,7 +185,7 @@ public class S3BucketDestinationTest {
     @Test
     public void filterUploadableFilesShouldHandleMultipleMarkers() throws DestinationOperationException {
 
-        ObjectListing listing = mock(ObjectListing.class);
+        ListObjectsV2Response listObjectsV2Response = mock(ListObjectsV2Response.class);
 
         List<String> existingPaths = Arrays.asList(
                 PREFIX + "file1.txt",
@@ -199,31 +196,23 @@ public class S3BucketDestinationTest {
                 PREFIX + "file9.txt"
         );
 
-        List<S3ObjectSummary> summaries = existingPaths.stream()
+        List<S3Object> existingObjects = existingPaths.stream()
                 .map(path -> {
-                    S3ObjectSummary summary = mock(S3ObjectSummary.class);
-                    doReturn(path).when(summary).getKey();
-                    return summary;
+                    S3Object s3Object = mock(S3Object.class);
+                    doReturn(path).when(s3Object).key();
+                    return s3Object;
                 }).collect(Collectors.toList());
 
-        List<S3ObjectSummary> summaries1 = summaries.subList(0, 3);
-        List<S3ObjectSummary> summaries2 = summaries.subList(3, 6);
+        List<S3Object> summaries1 = existingObjects.subList(0, 3);
+        List<S3Object> summaries2 = existingObjects.subList(3, 6);
 
-        when(listing.getObjectSummaries())
+        when(listObjectsV2Response.contents())
                 .thenReturn(summaries1)
                 .thenReturn(summaries2);
 
-        when(listing.isTruncated())
-                .thenReturn(true)
-                .thenReturn(false);
-
-        when(listing.getNextMarker())
-                .thenReturn("1")
-                .thenReturn(null);
-
-        doReturn(listing)
+        doReturn(listObjectsV2Response)
                 .when(awsClient)
-                .listObjects((ListObjectsRequest) any());
+                .listObjectsV2(any(ListObjectsV2Request.class));
 
         List<String> paths = Arrays.asList(
                 "file1.txt",

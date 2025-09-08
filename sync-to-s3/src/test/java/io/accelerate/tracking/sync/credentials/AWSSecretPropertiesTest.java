@@ -1,8 +1,8 @@
 package io.accelerate.tracking.sync.credentials;
 
-import com.amazonaws.services.s3.AmazonS3;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import software.amazon.awssdk.services.s3.S3Client;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -19,7 +19,7 @@ public class AWSSecretPropertiesTest {
         properties.setProperty("aws_session_token", "something");
         
         AWSSecretProperties secretProperties = AWSSecretProperties.fromProperties(properties);
-        AmazonS3 client = secretProperties.createClient();
+        S3Client client = secretProperties.createClient();
     }
     
     @Test
