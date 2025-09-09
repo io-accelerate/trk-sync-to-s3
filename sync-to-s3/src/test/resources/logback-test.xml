@@ -9,8 +9,12 @@
     </appender>
     <logger name="org.apache.http.wire" level="ERROR" />
     <logger name="org.apache.http.headers" level="ERROR" />
-    <logger name="o.a.h" level="ERROR" />
-    <logger name="com.amazonaws" level="ERROR" />
+    
+    
+    <!-- Tune down the AWS SDK v2 -->
+    <logger name="software.amazon" level="INFO" />
+    <!-- Suppress netty logging -->
+    <logger name="io.netty" level="ERROR"/>
 
     <root level="debug">
         <appender-ref ref="STDOUT" />

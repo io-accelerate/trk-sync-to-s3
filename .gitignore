@@ -7,3 +7,4 @@ build
 .tmp
 minio
 tmp
+random-file.txt

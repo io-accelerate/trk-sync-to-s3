@@ -1,140 +1,285 @@
 package io.accelerate.tracking.sync.testframework.rules;
 
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.model.*;
-import io.accelerate.tracking.sync.sync.destination.DebugDestination;
-import io.accelerate.tracking.sync.sync.destination.Destination;
-import io.accelerate.tracking.sync.sync.destination.S3BucketDestination;
+import io.accelerate.tracking.sync.helpers.FormattingHelper;
+import software.amazon.awssdk.core.async.AsyncRequestBody;
+import software.amazon.awssdk.services.s3.S3AsyncClient;
+import software.amazon.awssdk.services.s3.model.*;
 
-import java.io.ByteArrayInputStream;
-import java.io.File;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.Arrays;
+import java.util.*;
 import java.util.Base64;
-import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ExecutionException;
 
-import static io.accelerate.tracking.sync.testframework.rules.TemporarySyncFolder.PART_SIZE_IN_BYTES;
+import static io.accelerate.tracking.sync.helpers.FormattingHelper.buildKey;
+import static software.amazon.awssdk.services.s3.model.ChecksumAlgorithm.SHA256;
 
 abstract public class TestBucket {
 
-    AmazonS3 amazonS3;
+    S3AsyncClient s3AsyncClient;
     String bucketName;
-    String uploadPrefix;
+    String bucketPrefix;
+
 
     //~~~~ Getters
-    public Destination asDestination() {
-        S3BucketDestination remoteDestination = new S3BucketDestination(amazonS3, bucketName, uploadPrefix);
-        return new DebugDestination(remoteDestination);
-    }
-
-    //~~~~ Lifecycle management
-    public void beforeEach(){
-        abortAllMultipartUploads();
-        removeAllObjects();
-    }
-
-    public AmazonS3 getAmazonS3() {
-        return amazonS3;
-    }
-
-    private void removeAllObjects() {
-        amazonS3.listObjects(bucketName, uploadPrefix)
-                .getObjectSummaries()
-                .forEach(s3ObjectSummary -> {
-                    DeleteObjectRequest request = new DeleteObjectRequest(bucketName, s3ObjectSummary.getKey());
-                    amazonS3.deleteObject(request);
-                });
-    }
-
-    private void abortAllMultipartUploads() {
-        ListMultipartUploadsRequest multipartUploadsRequest = new ListMultipartUploadsRequest(bucketName);
-        multipartUploadsRequest.setPrefix(uploadPrefix);
-        amazonS3.listMultipartUploads(multipartUploadsRequest)
-                .getMultipartUploads()
-                .forEach(upload -> {
-                    AbortMultipartUploadRequest request = new AbortMultipartUploadRequest(bucketName, upload.getKey(), upload.getUploadId());
-                    amazonS3.abortMultipartUpload(request);
-                });
-    }
-
-    //~~~~ Bucket actions
-    public boolean doesObjectExists(String key) {
-        return amazonS3.doesObjectExist(bucketName, uploadPrefix + key);
-    }
-
-    public ObjectMetadata getObjectMetadata(String key) {
-        return amazonS3.getObjectMetadata(bucketName, uploadPrefix + key);
-    }
-
-    public Optional<MultipartUpload> getMultipartUploadFor(String key) {
-        ListMultipartUploadsRequest multipartUploadsRequest = new ListMultipartUploadsRequest(bucketName);
-        multipartUploadsRequest.setPrefix(uploadPrefix);
-        return amazonS3.listMultipartUploads(multipartUploadsRequest)
-                .getMultipartUploads().stream()
-                .filter(upl -> upl.getKey().equals(uploadPrefix + key))
-                .findAny();
-    }
-
-    public List<PartSummary> getPartsForKey(String key) {
-        ListMultipartUploadsRequest multipartUploadsRequest = new ListMultipartUploadsRequest(bucketName);
-        multipartUploadsRequest.setPrefix(uploadPrefix);
-        MultipartUpload upload = amazonS3.listMultipartUploads(multipartUploadsRequest)
-                .getMultipartUploads()
-                .stream()
-                .findFirst()
-                .orElse(null);
-        if (upload == null) {
-            return null;
-        } else {
-            return getPartsFor(upload);
-        }
-    }
-
-    public List<PartSummary> getPartsFor(MultipartUpload multipartUpload) {
-        ListPartsRequest listPartsRequest = new ListPartsRequest(bucketName,
-                multipartUpload.getKey(), multipartUpload.getUploadId());
-        return amazonS3.listParts(listPartsRequest).getParts();
-    }
-
-    @SuppressWarnings("SameParameterValue")
-    public void upload(String key, Path path) {
-        PutObjectRequest objectRequest = new PutObjectRequest(bucketName, uploadPrefix + key, path.toFile());
-        amazonS3.putObject(objectRequest);
-    }
-
-    public void uploadFilesInsideDir(Path dir) {
-        if (dir == null) {
-            return;
-        }
-
-        Arrays.stream(dir.toFile().listFiles())
-                .filter(File::isFile)
-                .forEach(file -> upload(file.getName(), file.toPath()));
-    }
-
-    public String initiateMultipartUpload(String name) {
-        InitiateMultipartUploadResult result = amazonS3.initiateMultipartUpload(
-                new InitiateMultipartUploadRequest(bucketName, uploadPrefix + name)
-        );
-        return result.getUploadId();
+    public S3AsyncClient getS3AsyncClient() {
+        return s3AsyncClient;
     }
 
     public String getBucketName() {
         return bucketName;
     }
 
-    public void uploadPart(String name, String uploadId, byte[] partData, int partNumber) throws NoSuchAlgorithmException {
-        UploadPartRequest request = new UploadPartRequest()
-                .withBucketName(bucketName)
-                .withKey(uploadPrefix + name)
-                .withPartNumber(partNumber)
-                .withMD5Digest(Base64.getEncoder().encodeToString(MessageDigest.getInstance("MD5").digest(partData)))
-                .withPartSize(PART_SIZE_IN_BYTES)
-                .withUploadId(uploadId)
-                .withInputStream(new ByteArrayInputStream(partData));
-        amazonS3.uploadPart(request);
+    public String getBucketPrefix() {
+        return bucketPrefix;
     }
+
+    //~~~~ Lifecycle management
+    public void beforeEach() {
+        abortAllMultipartUploads();
+        removeAllObjects();
+    }
+
+    private void removeAllObjects() {
+        try {
+            String continuation = null;
+            do {
+                ListObjectsV2Request.Builder lb = ListObjectsV2Request.builder()
+                        .bucket(bucketName)
+                        .prefix(bucketPrefix);
+                if (continuation != null) {
+                    lb.continuationToken(continuation);
+                }
+
+                ListObjectsV2Response response = s3AsyncClient
+                        .listObjectsV2(lb.build())
+                        .get();
+
+                if (response.hasContents() && !response.contents().isEmpty()) {
+                    // Use DeleteObjects for batch deletion
+                    List<ObjectIdentifier> toDelete = new ArrayList<>(response.contents().size());
+                    for (S3Object obj : response.contents()) {
+                        toDelete.add(ObjectIdentifier.builder().key(obj.key()).build());
+                    }
+                    DeleteObjectsRequest delReq = DeleteObjectsRequest.builder()
+                            .bucket(bucketName)
+                            .delete(Delete.builder().objects(toDelete).build())
+                            .build();
+                    s3AsyncClient.deleteObjects(delReq).get();
+                }
+
+                continuation = response.isTruncated() ? response.nextContinuationToken() : null;
+            } while (continuation != null);
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted removing objects", e);
+        } catch (ExecutionException e) {
+            throw new RuntimeException("Failed removing objects", e.getCause());
+        }
+    }
+
+    private void abortAllMultipartUploads() {
+        try {
+            String keyMarker = null;
+            String uploadIdMarker = null;
+            boolean truncated;
+
+            do {
+                ListMultipartUploadsRequest.Builder b = ListMultipartUploadsRequest.builder()
+                        .bucket(bucketName);
+                if (keyMarker != null) b = b.keyMarker(keyMarker);
+                if (uploadIdMarker != null) b = b.uploadIdMarker(uploadIdMarker);
+
+                ListMultipartUploadsResponse resp = s3AsyncClient.listMultipartUploads(b.build()).get();
+
+                for (MultipartUpload upload : resp.uploads()) {
+                    AbortMultipartUploadRequest abortRequest = AbortMultipartUploadRequest.builder()
+                            .bucket(bucketName)
+                            .key(upload.key())
+                            .uploadId(upload.uploadId())
+                            .build();
+                    s3AsyncClient.abortMultipartUpload(abortRequest).get();
+                }
+
+                truncated = Boolean.TRUE.equals(resp.isTruncated());
+                keyMarker = resp.nextKeyMarker();
+                uploadIdMarker = resp.nextUploadIdMarker();
+
+            } while (truncated);
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted aborting MPUs", e);
+        } catch (ExecutionException e) {
+            throw new RuntimeException("Failed aborting MPUs", e.getCause());
+        }
+    }
+
+    //~~~~ Bucket actions
+
+    /** Check if an object exists. */
+    public boolean doesNameExists(String objectName) {
+        try {
+            HeadObjectRequest request = HeadObjectRequest.builder()
+                    .bucket(bucketName)
+                    .key(buildKey(bucketPrefix, objectName))
+                    .build();
+            s3AsyncClient.headObject(request).get();
+            return true;
+        } catch (ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof NoSuchKeyException) return false;
+            if (cause instanceof S3Exception s3e && s3e.statusCode() == 404) return false;
+            throw new RuntimeException("HeadObject failed", cause);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted on HeadObject", ie);
+        }
+    }
+
+    /** Get metadata for an object. */
+    public HeadObjectResponse getObjectMetadataForName(String remoteName) {
+        try {
+            HeadObjectRequest request = HeadObjectRequest.builder()
+                    .bucket(bucketName)
+                    .key(buildKey(bucketPrefix, remoteName))
+                    .build();
+            return s3AsyncClient.headObject(request).get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted getting object metadata", e);
+        } catch (ExecutionException e) {
+            throw new RuntimeException("Failed getting object metadata", e.getCause());
+        }
+    }
+
+    /** Get details of multipart uploads for a key. */
+    public Optional<MultipartUpload> getMultipartUploadForName(String remoteName) {
+        try {
+            ListMultipartUploadsRequest request = ListMultipartUploadsRequest.builder()
+                    .bucket(bucketName)
+                    .prefix(buildKey(bucketPrefix, remoteName))
+                    .build();
+
+            ListMultipartUploadsResponse response = s3AsyncClient.listMultipartUploads(request).get();
+
+            return response.uploads().stream()
+                    .filter(upload -> upload.key().equals(buildKey(bucketPrefix, remoteName)))
+                    .findFirst();
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted listing MPUs", e);
+        } catch (ExecutionException e) {
+            throw new RuntimeException("Failed listing MPUs", e.getCause());
+        }
+    }
+
+    /** Get parts info for an object key's multipart upload. */
+    public List<Part> getPartsForName(String remoteName, String uploadId) {
+        try {
+            List<Part> parts = new ArrayList<>();
+            Integer partNumberMarker = null;
+            boolean truncated;
+            do {
+                ListPartsRequest.Builder b = ListPartsRequest.builder()
+                        .bucket(bucketName)
+                        .key(buildKey(bucketPrefix, remoteName))
+                        .uploadId(uploadId);
+                if (partNumberMarker != null) b.partNumberMarker(partNumberMarker);
+
+                ListPartsResponse resp = s3AsyncClient.listParts(b.build()).get();
+                parts.addAll(resp.parts());
+                truncated = Boolean.TRUE.equals(resp.isTruncated());
+                partNumberMarker = resp.nextPartNumberMarker();
+            } while (truncated);
+
+            return parts;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted listing parts", e);
+        } catch (ExecutionException e) {
+            throw new RuntimeException("Failed listing parts", e.getCause());
+        }
+    }
+
+    /** Upload a single file. */
+    @SuppressWarnings("SameParameterValue")
+    public void uploadByName(String remoteName, Path path) {
+        try {
+            PutObjectRequest putObjectRequest = PutObjectRequest.builder()
+                    .bucket(bucketName)
+                    .key(buildKey(bucketPrefix, remoteName))
+                    .build();
+
+            s3AsyncClient.putObject(putObjectRequest, AsyncRequestBody.fromFile(path)).get();
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted on putObject", e);
+        } catch (ExecutionException e) {
+            throw new RuntimeException("Failed on putObject", e.getCause());
+        }
+    }
+
+    /** Upload files from a directory. */
+    public void uploadFilesInsideDir(Path dir) {
+        // implement as needed for tests (walk the dir and call upload for each file)
+    }
+
+    /** Start a multipart upload. */
+    public String initiateMultipartUploadByName(String remoteName) {
+        try {
+            CreateMultipartUploadRequest request = CreateMultipartUploadRequest.builder()
+                    .bucket(bucketName)
+                    .key(buildKey(bucketPrefix, remoteName))
+                    .checksumAlgorithm(SHA256)
+                    .build();
+
+            CreateMultipartUploadResponse response = s3AsyncClient.createMultipartUpload(request).get();
+            return response.uploadId();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted initiating MPU", e);
+        } catch (ExecutionException e) {
+            throw new RuntimeException("Failed initiating MPU", e.getCause());
+        }
+    }
+
+    /** Upload a part in a multipart upload. */
+    public void uploadPartForName(String remoteName, String uploadId, byte[] partData, int partNumber) throws NoSuchAlgorithmException {
+        // Compute SHA256 digest of the part
+        String partHash = computeSha256(partData);
+
+        try {
+            UploadPartRequest request = UploadPartRequest.builder()
+                    .bucket(bucketName)
+                    .key(buildKey(bucketPrefix, remoteName))
+                    .uploadId(uploadId)
+                    .partNumber(partNumber)
+                    .contentLength((long) partData.length)
+                    .checksumSHA256(partHash) // <-- include checksum for server-side validation
+                    .build();
+
+            s3AsyncClient.uploadPart(request, AsyncRequestBody.fromBytes(partData)).get();
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted uploading part", e);
+        } catch (ExecutionException e) {
+            throw new RuntimeException("Failed uploading part", e.getCause());
+        }
+    }
+
+
+    /** Helper to compute SHA-256 hash. */
+    private String computeSha256(byte[] data) throws NoSuchAlgorithmException {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        byte[] hash = digest.digest(data);
+        return Base64.getEncoder().encodeToString(hash);
+    }
+    
 }

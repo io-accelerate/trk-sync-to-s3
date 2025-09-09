@@ -1,7 +1,6 @@
 package io.accelerate.tracking.sync;
 
-import com.amazonaws.services.s3.model.MultipartUpload;
-import com.amazonaws.services.s3.model.PartSummary;
+import io.accelerate.tracking.sync.helpers.FormattingHelper;
 import org.hamcrest.MatcherAssert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -12,6 +11,8 @@ import io.accelerate.tracking.sync.sync.RemoteSync;
 import io.accelerate.tracking.sync.sync.Source;
 import io.accelerate.tracking.sync.testframework.rules.LocalTestBucket;
 import io.accelerate.tracking.sync.testframework.rules.TemporarySyncFolder;
+import software.amazon.awssdk.services.s3.model.MultipartUpload;
+import software.amazon.awssdk.services.s3.model.Part;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -20,9 +21,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static io.accelerate.tracking.sync.helpers.FormattingHelper.sanitizeETag;
 import static org.hamcrest.CoreMatchers.is;
 import static io.accelerate.tracking.sync.testframework.rules.TemporarySyncFolder.ONE_MEGABYTE;
 import static io.accelerate.tracking.sync.testframework.rules.TemporarySyncFolder.PART_SIZE_IN_BYTES;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.startsWith;
 
 public class IncompleteFileUpload_AcceptanceTest {
 
@@ -59,24 +63,26 @@ public class IncompleteFileUpload_AcceptanceTest {
                 .setRecursive(true)
                 .create();
         
-        RemoteSync directorySync = new RemoteSync(directorySource, testBucket.asDestination());
+        RemoteSync directorySync = new RemoteSync(directorySource, testBucket.getS3AsyncClient(), testBucket.getBucketName(), testBucket.getBucketPrefix());
         directorySync.run();
 
         //Check that the file still not exists on the server
-        MatcherAssert.assertThat(testBucket.doesObjectExists(fileName), is(false));
+        assertThat(testBucket.doesNameExists(fileName), is(false));
 
         //Check multipart upload exists
-        MultipartUpload multipartUpload = testBucket.getMultipartUploadFor(fileName)
+        MultipartUpload multipartUpload = testBucket.getMultipartUploadForName(fileName)
                 .orElseThrow(() -> new AssertionError("Found no multipart upload for: "+fileName));
 
         //and the parts have the expected ETag
         Map<Integer, String> hashes = targetSyncFolder.getPartsHashes(fileName);
-        testBucket.getPartsFor(multipartUpload).forEach(partSummary -> comparePart(partSummary, hashes));
+        for (Part partSummary : testBucket.getPartsForName(fileName, multipartUpload.uploadId())) {
+            comparePart(partSummary, hashes);
+        }
     }
 
-    private void comparePart(PartSummary partSummary, Map<Integer, String> hashes) {
-        int partNumber = partSummary.getPartNumber();
-        Assertions.assertEquals(hashes.get(partNumber), partSummary.getETag());
+    private void comparePart(Part part, Map<Integer, String> hashes) {
+        int partNumber = part.partNumber();
+        Assertions.assertEquals(hashes.get(partNumber), sanitizeETag(part.eTag()));
     }
 
     @Test
@@ -85,8 +91,7 @@ public class IncompleteFileUpload_AcceptanceTest {
         targetSyncFolder.addFileFromResources(fileName);
         targetSyncFolder.lock(fileName);
 
-        String bucket = testBucket.getBucketName();
-        String uploadId = testBucket.initiateMultipartUpload(fileName);
+        String uploadId = testBucket.initiateMultipartUploadByName(fileName);
         
         //write third part of data
         targetSyncFolder.writeBytesToFile(fileName, PART_SIZE_IN_BYTES);
@@ -97,8 +102,8 @@ public class IncompleteFileUpload_AcceptanceTest {
         byte[] thirdPart = new byte[PART_SIZE_IN_BYTES];
         System.arraycopy(fileContent, 0, firstPart, 0, PART_SIZE_IN_BYTES);
         System.arraycopy(fileContent, PART_SIZE_IN_BYTES * 2, thirdPart, 0, PART_SIZE_IN_BYTES);
-        testBucket.uploadPart(fileName, uploadId, firstPart, 1);
-        testBucket.uploadPart(fileName, uploadId, thirdPart, 3);
+        testBucket.uploadPartForName(fileName, uploadId, firstPart, 1);
+        testBucket.uploadPartForName(fileName, uploadId, thirdPart, 3);
 
         //write additional data and delete lock file
         targetSyncFolder.writeBytesToFile(fileName, ONE_MEGABYTE);
@@ -111,18 +116,17 @@ public class IncompleteFileUpload_AcceptanceTest {
                 .setRecursive(true)
                 .create();
         
-        RemoteSync directorySync = new RemoteSync(directorySource, testBucket.asDestination());
+        RemoteSync directorySync = new RemoteSync(directorySource, testBucket.getS3AsyncClient(), testBucket.getBucketName(), testBucket.getBucketPrefix());
         directorySync.run();
 
         //Check that the file exists on the server
-        MatcherAssert.assertThat(testBucket.doesObjectExists(fileName), is(true));
+        assertThat(testBucket.doesNameExists(fileName), is(true));
 
         //Check that multipart upload completed and not exists anymore
-        MatcherAssert.assertThat(testBucket.getMultipartUploadFor(fileName), is(Optional.empty()));
+        assertThat(testBucket.getMultipartUploadForName(fileName), is(Optional.empty()));
 
         //check complete file hash. ETag of complete file consists from complete file MD5 hash and parts count after "-" sign
-        Assertions.assertTrue(testBucket.getObjectMetadata(fileName)
-                .getETag().startsWith(targetSyncFolder.getCompleteFileMD5(fileName)));
+        assertThat(sanitizeETag(testBucket.getObjectMetadataForName(fileName).eTag()), startsWith(targetSyncFolder.getCompleteFileMD5(fileName)));
     }
 
 
@@ -140,11 +144,15 @@ public class IncompleteFileUpload_AcceptanceTest {
                 .setRecursive(true)
                 .create();
         
-        RemoteSync directorySync = new RemoteSync(directorySource, testBucket.asDestination());
+        RemoteSync directorySync = new RemoteSync(directorySource, testBucket.getS3AsyncClient(), testBucket.getBucketName(), testBucket.getBucketPrefix());
         directorySync.run();
-        
-        MatcherAssert.assertThat(testBucket.doesObjectExists(fileName), is(false));
-        List<PartSummary> list1 = testBucket.getPartsForKey(fileName);
+
+        //Check multipart upload exists
+        MultipartUpload multipartUpload = testBucket.getMultipartUploadForName(fileName)
+                .orElseThrow(() -> new AssertionError("Found no multipart upload for: "+fileName));
+
+        assertThat(testBucket.doesNameExists(fileName), is(false));
+        List<Part> list1 = testBucket.getPartsForName(fileName, multipartUpload.uploadId());
         Assertions.assertNotNull(list1);
         Assertions.assertTrue(list1.isEmpty());
         
@@ -153,8 +161,8 @@ public class IncompleteFileUpload_AcceptanceTest {
         //Upload incomplete file file
         directorySync.run();
         
-        MatcherAssert.assertThat(testBucket.doesObjectExists(fileName), is(false));
-        List<PartSummary> list2 = testBucket.getPartsForKey(fileName);
+        assertThat(testBucket.doesNameExists(fileName), is(false));
+        List<Part> list2 = testBucket.getPartsForName(fileName, multipartUpload.uploadId());
         Assertions.assertNotNull(list2);
         Assertions.assertFalse(list2.isEmpty());
         
@@ -164,11 +172,11 @@ public class IncompleteFileUpload_AcceptanceTest {
         //Finalize
         directorySync.run();
         
-        MatcherAssert.assertThat(testBucket.doesObjectExists(fileName), is(true));
+        assertThat(testBucket.doesNameExists(fileName), is(true));
         
-        MatcherAssert.assertThat(testBucket.getMultipartUploadFor(fileName), is(Optional.empty()));
-        
-        Assertions.assertTrue(testBucket.getObjectMetadata(fileName)
-                .getETag().startsWith(targetSyncFolder.getCompleteFileMD5(fileName)));
+        assertThat(testBucket.getMultipartUploadForName(fileName), is(Optional.empty()));
+
+        //check complete file hash. ETag of complete file consists from complete file MD5 hash and parts count after "-" sign
+        assertThat(sanitizeETag(testBucket.getObjectMetadataForName(fileName).eTag()), startsWith(targetSyncFolder.getCompleteFileMD5(fileName)));
     }
 }

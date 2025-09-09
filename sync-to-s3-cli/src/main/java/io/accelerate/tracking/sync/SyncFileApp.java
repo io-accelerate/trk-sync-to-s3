@@ -7,9 +7,7 @@ import io.accelerate.tracking.sync.credentials.AWSSecretProperties;
 import io.accelerate.tracking.sync.sync.Filters;
 import io.accelerate.tracking.sync.sync.RemoteSync;
 import io.accelerate.tracking.sync.sync.Source;
-import io.accelerate.tracking.sync.sync.destination.Destination;
 import io.accelerate.tracking.sync.sync.destination.DestinationOperationException;
-import io.accelerate.tracking.sync.sync.destination.S3BucketDestination;
 import io.accelerate.tracking.sync.sync.progress.UploadStatsProgressListener;
 
 import java.nio.file.Path;
@@ -42,8 +40,6 @@ public class SyncFileApp {
     }
 
     public static void main(String[] args) throws DestinationOperationException {
-        S3BucketDestination.runSanityCheck();
-
         SyncFileApp app = new SyncFileApp();
         JCommander jCommander = new JCommander(app);
         jCommander.parse(args);
@@ -54,11 +50,10 @@ public class SyncFileApp {
     private void run() throws DestinationOperationException {
         // Prepare
         Source source = buildSource();
-        Destination destination = buildDestination();
-        RemoteSync sync = new RemoteSync(source, destination);
-
-        // Check destination
-        destination.startS3SyncSession();
+        Path path = Paths.get(configPath);
+        AWSSecretProperties awsSecretProperties = AWSSecretProperties.fromPlainTextFile(path);
+        
+        RemoteSync sync = new RemoteSync(source, awsSecretProperties.createClient(), awsSecretProperties.getS3Bucket(), awsSecretProperties.getS3Prefix());
 
         // Configure progress listener
         UploadStatsProgressListener uploadStatsProgressListener = new UploadStatsProgressListener();
@@ -94,13 +89,4 @@ public class SyncFileApp {
                 .create();
     }
 
-    private Destination buildDestination() {
-        Path path = Paths.get(configPath);
-        AWSSecretProperties awsSecretProperties = AWSSecretProperties.fromPlainTextFile(path);
-
-        return new S3BucketDestination(
-                awsSecretProperties.createClient(),
-                awsSecretProperties.getS3Bucket(),
-                awsSecretProperties.getS3Prefix());
-    }
 }

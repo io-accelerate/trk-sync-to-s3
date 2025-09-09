@@ -125,11 +125,13 @@ The values are:
 
 Start Minio as a container
 ```
-docker run -d -p 9000:9000 --rm \
-    -e "MINIO_ACCESS_KEY=minio_access_key" \
-    -e "MINIO_SECRET_KEY=minio_secret_key" \
-    -e "MINIO_BROWSER=off" \
-    minio/minio:RELEASE.2017-05-05T01-14-51Z server /data
+docker run -d --rm \
+  --name minio \
+  -p 9000:9000 \
+  -p 9001:9001 \
+  -e "MINIO_ROOT_USER=minio_access_key" \
+  -e "MINIO_ROOT_PASSWORD=minio_secret_key" \
+  minio/minio:RELEASE.2025-09-07T16-13-09Z server /data --console-address ":9001"
 ```
 
 Minio can be accessed via the normal AWS client
@@ -139,7 +141,10 @@ export AWS_SECRET_ACCESS_KEY=minio_secret_key
 export AWS_DEFAULT_REGION=us-east-1
 
 aws --endpoint-url http://127.0.0.1:9000 s3api list-multipart-uploads --bucket localbucket
-aws --endpoint-url http://127.0.0.1:9000 s3 ls
+aws --endpoint-url http://127.0.0.1:9000 s3api list-parts  --bucket localbucket --key prefix/sample_small_file_to_upload.txt --upload-id <FILL>
+aws --endpoint-url http://127.0.0.1:9000 s3api abort-multipart-upload  --bucket localbucket --key prefix/sample_small_file_to_upload.txt --upload-id <FILL>
+
+aws --endpoint-url http://127.0.0.1:9000 s3api list-objects --bucket localbucket
 ```
 
 Run the local tests

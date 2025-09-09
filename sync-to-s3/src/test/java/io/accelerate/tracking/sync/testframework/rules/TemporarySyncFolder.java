@@ -1,9 +1,7 @@
 package io.accelerate.tracking.sync.testframework.rules;
 
 import ch.qos.logback.core.encoder.ByteArrayUtil;
-import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.io.IOUtils;
-import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -15,6 +13,7 @@ import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.Map;
 import java.util.Random;
 
@@ -85,7 +84,7 @@ public class TemporarySyncFolder {
             for (int i = 1; read < fileSize; i++) {
                 int chunkSize = fileSize - read > PART_SIZE_IN_BYTES ? PART_SIZE_IN_BYTES : (int) (fileSize - read);
                 byte[] chunk = IOUtils.readFully(fileInputStream, chunkSize);
-                String hash = Hex.encodeHexString(digest.digest(chunk));
+                String hash = HexFormat.of().formatHex(digest.digest(chunk));
                 result.put(i, hash);
                 read += chunk.length;
             }

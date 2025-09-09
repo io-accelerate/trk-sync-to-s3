@@ -1,6 +1,5 @@
 package io.accelerate.tracking.sync;
 
-import com.amazonaws.services.s3.model.ObjectMetadata;
 import org.hamcrest.MatcherAssert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -9,6 +8,7 @@ import io.accelerate.tracking.sync.sync.Filters;
 import io.accelerate.tracking.sync.sync.RemoteSync;
 import io.accelerate.tracking.sync.sync.Source;
 import io.accelerate.tracking.sync.testframework.rules.LocalTestBucket;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -35,7 +35,7 @@ public class FileUpload_AcceptanceTest {
                 .create();
 
         //Upload first file just to check in test that it will not be uploaded twice
-        RemoteSync sync = new RemoteSync(source, testBucket.asDestination());
+        RemoteSync sync = new RemoteSync(source, testBucket.getS3AsyncClient(), testBucket.getBucketName(), testBucket.getBucketPrefix());
         sync.run();
 
         // Sleep 2 seconds to distinguish that file uploaded_once.txt on aws was not uploaded by next call
@@ -43,8 +43,8 @@ public class FileUpload_AcceptanceTest {
         Instant uploadingTime = Instant.now();
         sync.run();
 
-        ObjectMetadata objectMetadata = testBucket.getObjectMetadata("already_uploaded.txt");
-        Instant actualLastModifiedDate = objectMetadata.getLastModified().toInstant();
+        HeadObjectResponse objectMetadata = testBucket.getObjectMetadataForName("already_uploaded.txt");
+        Instant actualLastModifiedDate = objectMetadata.lastModified();
 
         //Check that file is older than last uploading start
         Assertions.assertTrue(actualLastModifiedDate.isBefore(uploadingTime));
@@ -58,10 +58,10 @@ public class FileUpload_AcceptanceTest {
                 .setFilters(filters)
                 .create();
 
-        RemoteSync sync = new RemoteSync(source, testBucket.asDestination());
+        RemoteSync sync = new RemoteSync(source, testBucket.getS3AsyncClient(), testBucket.getBucketName(), testBucket.getBucketPrefix());
         sync.run();
 
-        MatcherAssert.assertThat(testBucket.doesObjectExists("sample_small_file_to_upload.txt"), is(true));
+        MatcherAssert.assertThat(testBucket.doesNameExists("sample_small_file_to_upload.txt"), is(true));
     }
 
     @Test
@@ -72,10 +72,10 @@ public class FileUpload_AcceptanceTest {
                 .setFilters(filters)
                 .create();
 
-        RemoteSync sync = new RemoteSync(source, testBucket.asDestination());
+        RemoteSync sync = new RemoteSync(source, testBucket.getS3AsyncClient(), testBucket.getBucketName(), testBucket.getBucketPrefix());
         sync.run();
 
-        MatcherAssert.assertThat(testBucket.doesObjectExists("large_file.bin"), is(true));
+        MatcherAssert.assertThat(testBucket.doesNameExists("large_file.bin"), is(true));
     }
 
 }
