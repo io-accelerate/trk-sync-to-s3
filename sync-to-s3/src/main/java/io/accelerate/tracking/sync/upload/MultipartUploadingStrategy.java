@@ -53,6 +53,9 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
         this.listener = listener;
     }
 
+    record ExistingPart(String eTag, String checksumSHA256) {
+    }
+
     @Override
     public void upload(File file, String remoteFileName) throws DestinationOperationException, IOException {
         Objects.requireNonNull(file, "file");
@@ -79,10 +82,10 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
 
         // 2) Discover already uploaded parts and bytes
         final List<Part> existingParts = listAllParts(bucket, key, session.uploadId());
-        final Map<Integer, String> existingEtagsByPart =
+        final Map<Integer, ExistingPart> existingEtagsByPart =
                 existingParts.stream().collect(Collectors.toMap(
                         Part::partNumber,
-                        p -> FormattingHelper.sanitizeETag(p.eTag())        // <--- strip quotes here
+                        p -> new ExistingPart(FormattingHelper.sanitizeETag(p.eTag()), p.checksumSHA256())    
                 ));
         final long alreadyUploadedBytes = existingParts.stream().mapToLong(Part::size).sum();
 
@@ -178,9 +181,13 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
             List<CompletedPart> allParts = new ArrayList<>(maxPartNumberThisRun);
             for (int pn = 1; pn <= maxPartNumberThisRun; pn++) {
                 final int partNum = pn; // effectively final for lambda
-                String etag = existingEtagsByPart.get(partNum);
-                if (etag != null) {
-                    allParts.add(CompletedPart.builder().partNumber(partNum).eTag(FormattingHelper.sanitizeETag(etag)).build());
+                ExistingPart existingPart = existingEtagsByPart.get(partNum);
+                if (existingPart != null) {
+                    allParts.add(CompletedPart.builder()
+                            .partNumber(partNum)
+                            .checksumSHA256(existingPart.checksumSHA256)
+                            .eTag(existingPart.eTag)
+                            .build());
                 } else {
                     CompletedPart p = newCompletedParts.stream()
                             .filter(cp -> cp.partNumber() == partNum)
@@ -209,7 +216,7 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
         } catch (Throwable t) {
             // Do not abort to preserve resumability across scheduled runs
             if (t instanceof DestinationOperationException doe) throw doe;
-            throw new DestinationOperationException("Multipart upload failed for key " + key, t);
+            throw new DestinationOperationException("Multipart upload failed for key " + key + " with error: " + t.getMessage(), t);
         }
     }
 

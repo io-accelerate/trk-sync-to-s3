@@ -143,6 +143,8 @@ export AWS_DEFAULT_REGION=us-east-1
 aws --endpoint-url http://127.0.0.1:9000 s3api list-multipart-uploads --bucket localbucket
 aws --endpoint-url http://127.0.0.1:9000 s3api list-parts  --bucket localbucket --key prefix/sample_small_file_to_upload.txt --upload-id <FILL>
 aws --endpoint-url http://127.0.0.1:9000 s3api abort-multipart-upload  --bucket localbucket --key prefix/sample_small_file_to_upload.txt --upload-id <FILL>
+
+aws --endpoint-url http://127.0.0.1:9000 s3api list-objects --bucket localbucket
 ```
 
 Run the local tests

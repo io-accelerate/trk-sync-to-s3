@@ -56,17 +56,8 @@ public class SyncFileApp {
         Source source = buildSource();
         Path path = Paths.get(configPath);
         AWSSecretProperties awsSecretProperties = AWSSecretProperties.fromPlainTextFile(path);
-
-        Destination destination = new S3BucketDestination(
-                awsSecretProperties.createClient(),
-                awsSecretProperties.getS3Bucket(),
-                awsSecretProperties.getS3Prefix());
-        
         
         RemoteSync sync = new RemoteSync(source, awsSecretProperties.createClient(), awsSecretProperties.getS3Bucket(), awsSecretProperties.getS3Prefix());
-
-        // Check destination
-        destination.startS3SyncSession();
 
         // Configure progress listener
         UploadStatsProgressListener uploadStatsProgressListener = new UploadStatsProgressListener();
