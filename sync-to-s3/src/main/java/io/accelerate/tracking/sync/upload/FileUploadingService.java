@@ -1,7 +1,5 @@
 package io.accelerate.tracking.sync.upload;
 
-import io.accelerate.tracking.sync.sync.destination.Destination;
-import io.accelerate.tracking.sync.sync.progress.DummyProgressListener;
 import io.accelerate.tracking.sync.sync.progress.ProgressListener;
 import software.amazon.awssdk.services.s3.S3AsyncClient;
 

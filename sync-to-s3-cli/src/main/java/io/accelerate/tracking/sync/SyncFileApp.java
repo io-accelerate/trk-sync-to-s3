@@ -7,9 +7,7 @@ import io.accelerate.tracking.sync.credentials.AWSSecretProperties;
 import io.accelerate.tracking.sync.sync.Filters;
 import io.accelerate.tracking.sync.sync.RemoteSync;
 import io.accelerate.tracking.sync.sync.Source;
-import io.accelerate.tracking.sync.sync.destination.Destination;
 import io.accelerate.tracking.sync.sync.destination.DestinationOperationException;
-import io.accelerate.tracking.sync.sync.destination.S3BucketDestination;
 import io.accelerate.tracking.sync.sync.progress.UploadStatsProgressListener;
 
 import java.nio.file.Path;
@@ -42,8 +40,6 @@ public class SyncFileApp {
     }
 
     public static void main(String[] args) throws DestinationOperationException {
-        S3BucketDestination.runSanityCheck();
-
         SyncFileApp app = new SyncFileApp();
         JCommander jCommander = new JCommander(app);
         jCommander.parse(args);

@@ -16,10 +16,9 @@ jobs:
       - name: Launch MinIO
         run: |
           docker run -d -p 9000:9000 --rm \
-            -e "MINIO_ACCESS_KEY=minio_access_key" \
-            -e "MINIO_SECRET_KEY=minio_secret_key" \
-            -e "MINIO_BROWSER=off" \
-            minio/minio:RELEASE.2017-05-05T01-14-51Z server /data
+            -e "MINIO_ROOT_USER=minio_access_key" \
+            -e "MINIO_ROOT_PASSWORD=minio_secret_key" \
+            minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
           
           # Wait for HTTP to respond (old builds have no /minio/health/*)
           for i in {1..60}; do
