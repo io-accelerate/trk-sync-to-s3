@@ -1,6 +1,7 @@
 package io.accelerate.tracking.sync.credentials;
 
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3AsyncClient;
@@ -39,18 +40,19 @@ public class AWSSecretProperties {
     public S3AsyncClient createClient() {
         String awsAccessKeyId = privateProperties.getProperty("aws_access_key_id");
         String awsSecretAccessKey = privateProperties.getProperty("aws_secret_access_key");
+        String awsSessionToken = privateProperties.getProperty("aws_session_token"); // optional
         String s3Region = privateProperties.getProperty("s3_region");
 
-        AwsBasicCredentials awsCredentials = AwsBasicCredentials.create(
-                awsAccessKeyId,
-                awsSecretAccessKey
-        );
+        var awsCredentials = (awsSessionToken != null && !awsSessionToken.isBlank())
+                ? AwsSessionCredentials.create(awsAccessKeyId, awsSecretAccessKey, awsSessionToken)
+                : AwsBasicCredentials.create(awsAccessKeyId, awsSecretAccessKey);
 
         return S3AsyncClient.builder()
                 .credentialsProvider(StaticCredentialsProvider.create(awsCredentials))
                 .region(Region.of(s3Region))
                 .build();
     }
+
 
     public String getS3Bucket() {
         return privateProperties.getProperty("s3_bucket");

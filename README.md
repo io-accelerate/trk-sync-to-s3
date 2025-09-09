@@ -219,6 +219,28 @@ aws s3api complete-multipart-upload \
   --upload-id "jdB1Q.SRfhk0wdRalRHJNLvE8xEoiH5TiQPBrnG2_hkU1oc9wcQSQgM4FcEUmDxNuA2FGHUigd_0LwkovflgXupcQMXCuJ_xYML9ZtKlX4LS8PaXXxaNcA4WOexreZoZ.fZ_NxDHxqCbg15H6enZdg--"
 ```
 
+### Local CLI
+
+Build the local CLI
+```shell
+./gradlew clean shadowJar -i -x test
+```
+
+Retrieve a pair of creds and store in file, say
+```shell
+cat <CONFIG_FILE>
+ ./use_temp_creds.sh <CONFIG_FILE> sts get-caller-identity
+```
+
+Try using the creds via the CLI
+```shell
+ ./use_temp_creds.sh <CONFIG_FILE> s3api 
+```
+
+Run against a dir
+```shell
+java -jar sync-to-s3-cli/build/libs/sync-to-s3-cli-*-all.jar -d <TARGET_DIR> -c <CONFIG_FILE>
+```
 
 ### Release
 

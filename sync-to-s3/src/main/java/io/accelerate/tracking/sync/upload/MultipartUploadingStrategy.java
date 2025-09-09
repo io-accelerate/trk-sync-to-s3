@@ -228,13 +228,17 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
         } catch (ExecutionException ee) {
             Throwable cause = ee.getCause();
             if (cause instanceof NoSuchKeyException) return false;
-            if (cause instanceof S3Exception s3e && s3e.statusCode() == 404) return false;
+            if (cause instanceof S3Exception s3e) {
+                int code = s3e.statusCode();
+                if (code == 404 || code == 403) return false;
+            }
             throw new SyncException("HeadObject failed for key " + key, cause);
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
             throw new SyncException("Interrupted during HeadObject for key " + key, ie);
         }
     }
+
 
     /** UploadSession: uploadId plus whether we created it with SHA-256. */
     private record UploadSession(String uploadId, boolean createdWithSha256) {}

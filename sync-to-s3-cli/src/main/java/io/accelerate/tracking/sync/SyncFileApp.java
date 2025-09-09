@@ -19,8 +19,8 @@ import java.util.TimerTask;
 @Parameters
 public class SyncFileApp {
 
-    @Parameter(names = {"--config", "-c"})
-    private String configPath = "./.private/aws-test-secrets";
+    @Parameter(names = {"--config", "-c"}, required = true)
+    private String configPath;
 
     @Parameter(names = {"--dir", "-d"}, required = true)
     private String dirPath;
@@ -28,8 +28,8 @@ public class SyncFileApp {
     @Parameter(names = {"--recursive", "-R"})
     private boolean recursive = false;
 
-    @Parameter(names = {"--filter"})
-    private String regex = "^[0-9a-zA-Z\\_]+\\.mp4";
+    @Parameter(names = {"--filter-extension"})
+    private String filterExtension = "txt";
 
     private static final NumberFormat percentageFormatter = NumberFormat.getPercentInstance();
     private static final NumberFormat uploadSpeedFormatter = NumberFormat.getNumberInstance();
@@ -81,7 +81,7 @@ public class SyncFileApp {
 
     private Source buildSource() {
         Filters filters = Filters.getBuilder()
-                .include(Filters.matches(regex))
+                .include(Filters.endsWith("."+filterExtension))
                 .create();
         return Source.getBuilder(Paths.get(dirPath))
                 .setFilters(filters)
