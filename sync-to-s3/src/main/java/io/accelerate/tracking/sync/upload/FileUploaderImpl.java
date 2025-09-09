@@ -2,7 +2,7 @@ package io.accelerate.tracking.sync.upload;
 
 import org.slf4j.Logger;
 import io.accelerate.tracking.sync.helpers.FileHelper;
-import io.accelerate.tracking.sync.sync.destination.DestinationOperationException;
+import io.accelerate.tracking.sync.sync.SyncException;
 
 import java.io.File;
 import java.io.IOException;
@@ -35,7 +35,7 @@ public class FileUploaderImpl implements FileUploader {
         log.info("Uploading file " + filePath);
         try {
             uploadInternal(file, path);
-        } catch (IOException | DestinationOperationException e) {
+        } catch (IOException | SyncException e) {
             //TODO: Might need to change to loop instead of recursive construct
             if (retry == 0) {
                 log.error("Error during uploading, can't upload file due to exception: " + e.getMessage());
@@ -49,7 +49,7 @@ public class FileUploaderImpl implements FileUploader {
         }
     }
 
-    private void uploadInternal(File file, String path) throws DestinationOperationException, IOException {
+    private void uploadInternal(File file, String path) throws SyncException, IOException {
         uploadingStrategy.upload(file, path);
     }
 

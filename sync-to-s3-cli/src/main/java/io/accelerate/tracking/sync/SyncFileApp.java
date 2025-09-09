@@ -7,7 +7,7 @@ import io.accelerate.tracking.sync.credentials.AWSSecretProperties;
 import io.accelerate.tracking.sync.sync.Filters;
 import io.accelerate.tracking.sync.sync.RemoteSync;
 import io.accelerate.tracking.sync.sync.Source;
-import io.accelerate.tracking.sync.sync.destination.DestinationOperationException;
+import io.accelerate.tracking.sync.sync.SyncException;
 import io.accelerate.tracking.sync.sync.progress.UploadStatsProgressListener;
 
 import java.nio.file.Path;
@@ -39,7 +39,7 @@ public class SyncFileApp {
         uploadSpeedFormatter.setMinimumFractionDigits(1);
     }
 
-    public static void main(String[] args) throws DestinationOperationException {
+    public static void main(String[] args) throws SyncException {
         SyncFileApp app = new SyncFileApp();
         JCommander jCommander = new JCommander(app);
         jCommander.parse(args);
@@ -47,7 +47,7 @@ public class SyncFileApp {
         app.run();
     }
 
-    private void run() throws DestinationOperationException {
+    private void run() throws SyncException {
         // Prepare
         Source source = buildSource();
         Path path = Paths.get(configPath);

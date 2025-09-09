@@ -2,7 +2,7 @@ package io.accelerate.tracking.sync.upload;
 
 import io.accelerate.tracking.sync.helpers.FileHelper;
 import io.accelerate.tracking.sync.helpers.FormattingHelper;
-import io.accelerate.tracking.sync.sync.destination.DestinationOperationException;
+import io.accelerate.tracking.sync.sync.SyncException;
 import io.accelerate.tracking.sync.sync.progress.ProgressListener;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
@@ -57,7 +57,7 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
     }
 
     @Override
-    public void upload(File file, String remoteFileName) throws DestinationOperationException, IOException {
+    public void upload(File file, String remoteFileName) throws SyncException, IOException {
         Objects.requireNonNull(file, "file");
         if (!file.exists() || !file.isFile()) {
             throw new IOException("File does not exist or is not a regular file: " + file);
@@ -215,13 +215,13 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
 
         } catch (Throwable t) {
             // Do not abort to preserve resumability across scheduled runs
-            if (t instanceof DestinationOperationException doe) throw doe;
-            throw new DestinationOperationException("Multipart upload failed for key " + key + " with error: " + t.getMessage(), t);
+            if (t instanceof SyncException doe) throw doe;
+            throw new SyncException("Multipart upload failed for key " + key + " with error: " + t.getMessage(), t);
         }
     }
 
     /** True if object already exists (HEAD 200). False on 404. Propagates other errors. */
-    private boolean objectExists(String bucket, String key) throws DestinationOperationException {
+    private boolean objectExists(String bucket, String key) throws SyncException {
         try {
             s3.headObject(HeadObjectRequest.builder().bucket(bucket).key(key).build()).get();
             return true;
@@ -229,10 +229,10 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
             Throwable cause = ee.getCause();
             if (cause instanceof NoSuchKeyException) return false;
             if (cause instanceof S3Exception s3e && s3e.statusCode() == 404) return false;
-            throw new DestinationOperationException("HeadObject failed for key " + key, cause);
+            throw new SyncException("HeadObject failed for key " + key, cause);
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
-            throw new DestinationOperationException("Interrupted during HeadObject for key " + key, ie);
+            throw new SyncException("Interrupted during HeadObject for key " + key, ie);
         }
     }
 
@@ -240,7 +240,7 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
     private record UploadSession(String uploadId, boolean createdWithSha256) {}
 
     /** Reuse existing MPU for this key if present, else create a new one. Filtered by exact-key prefix. */
-    private UploadSession resolveOrCreateUploadId(String bucket, String key) throws DestinationOperationException {
+    private UploadSession resolveOrCreateUploadId(String bucket, String key) throws SyncException {
         try {
             ListMultipartUploadsResponse listResp = s3
                     .listMultipartUploads(ListMultipartUploadsRequest.builder()
@@ -267,14 +267,14 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
 
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
-            throw new DestinationOperationException("Interrupted resolving uploadId", ie);
+            throw new SyncException("Interrupted resolving uploadId", ie);
         } catch (ExecutionException ee) {
-            throw new DestinationOperationException("Failed resolving uploadId", ee.getCause());
+            throw new SyncException("Failed resolving uploadId", ee.getCause());
         }
     }
 
     /** Fetch all already uploaded parts for a given uploadId using async client, blocking loop. */
-    private List<Part> listAllParts(String bucket, String key, String uploadId) throws DestinationOperationException {
+    private List<Part> listAllParts(String bucket, String key, String uploadId) throws SyncException {
         try {
             List<Part> parts = new ArrayList<>();
             Integer partNumberMarker = null;
@@ -295,9 +295,9 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
             return parts;
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
-            throw new DestinationOperationException("Interrupted listing parts", ie);
+            throw new SyncException("Interrupted listing parts", ie);
         } catch (ExecutionException ee) {
-            throw new DestinationOperationException("Failed listing parts", ee.getCause());
+            throw new SyncException("Failed listing parts", ee.getCause());
         }
     }
 
