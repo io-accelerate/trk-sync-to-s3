@@ -43,7 +43,7 @@ public class FileUpload_AcceptanceTest {
         Instant uploadingTime = Instant.now();
         sync.run();
 
-        HeadObjectResponse objectMetadata = testBucket.getObjectMetadata("already_uploaded.txt");
+        HeadObjectResponse objectMetadata = testBucket.getObjectMetadataForName("already_uploaded.txt");
         Instant actualLastModifiedDate = objectMetadata.lastModified();
 
         //Check that file is older than last uploading start
@@ -61,7 +61,7 @@ public class FileUpload_AcceptanceTest {
         RemoteSync sync = new RemoteSync(source, testBucket.getS3AsyncClient(), testBucket.getBucketName(), testBucket.getBucketPrefix());
         sync.run();
 
-        MatcherAssert.assertThat(testBucket.doesObjectExists("sample_small_file_to_upload.txt"), is(true));
+        MatcherAssert.assertThat(testBucket.doesNameExists("sample_small_file_to_upload.txt"), is(true));
     }
 
     @Test
@@ -75,7 +75,7 @@ public class FileUpload_AcceptanceTest {
         RemoteSync sync = new RemoteSync(source, testBucket.getS3AsyncClient(), testBucket.getBucketName(), testBucket.getBucketPrefix());
         sync.run();
 
-        MatcherAssert.assertThat(testBucket.doesObjectExists("large_file.bin"), is(true));
+        MatcherAssert.assertThat(testBucket.doesNameExists("large_file.bin"), is(true));
     }
 
 }

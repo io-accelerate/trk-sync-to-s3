@@ -1,6 +1,7 @@
 package io.accelerate.tracking.sync.upload;
 
 import io.accelerate.tracking.sync.helpers.FileHelper;
+import io.accelerate.tracking.sync.helpers.FormattingHelper;
 import io.accelerate.tracking.sync.sync.destination.DestinationOperationException;
 import io.accelerate.tracking.sync.sync.progress.ProgressListener;
 import org.reactivestreams.Publisher;
@@ -60,7 +61,7 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
         }
         Objects.requireNonNull(remoteFileName, "remoteFileName");
 
-        final String key = buildKey(remoteFileName);
+        final String key = FormattingHelper.buildKey(this.prefix, remoteFileName);
 
         // 0) Preflight: only upload new files. If key already exists, exit early.
         if (objectExists(bucket, key)) {
@@ -81,7 +82,7 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
         final Map<Integer, String> existingEtagsByPart =
                 existingParts.stream().collect(Collectors.toMap(
                         Part::partNumber,
-                        p -> sanitizeETag(p.eTag())        // <--- strip quotes here
+                        p -> FormattingHelper.sanitizeETag(p.eTag())        // <--- strip quotes here
                 ));
         final long alreadyUploadedBytes = existingParts.stream().mapToLong(Part::size).sum();
 
@@ -150,7 +151,7 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
                             CompletedPart.builder()
                                     .partNumber(partNumber)
                                     .checksumSHA256(sha256Base64)
-                                    .eTag(sanitizeETag(resp.eTag()))   // <--- strip quotes here
+                                    .eTag(FormattingHelper.sanitizeETag(resp.eTag()))   // <--- strip quotes here
                                     .build()
                     );
                     long current = uploadedSoFar.addAndGet(size);
@@ -179,7 +180,7 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
                 final int partNum = pn; // effectively final for lambda
                 String etag = existingEtagsByPart.get(partNum);
                 if (etag != null) {
-                    allParts.add(CompletedPart.builder().partNumber(partNum).eTag(sanitizeETag(etag)).build());
+                    allParts.add(CompletedPart.builder().partNumber(partNum).eTag(FormattingHelper.sanitizeETag(etag)).build());
                 } else {
                     CompletedPart p = newCompletedParts.stream()
                             .filter(cp -> cp.partNumber() == partNum)
@@ -210,22 +211,6 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
             if (t instanceof DestinationOperationException doe) throw doe;
             throw new DestinationOperationException("Multipart upload failed for key " + key, t);
         }
-    }
-
-    /** Build the final S3 key from prefix and file name. Ensures exactly one slash between. */
-    private String buildKey(String remoteFileName) {
-        String p = this.prefix;
-        if (p.isEmpty()) {
-            return stripLeadingSlash(remoteFileName);
-        }
-        String normalizedPrefix = p.endsWith("/") ? p : p + "/";
-        String name = stripLeadingSlash(remoteFileName);
-        return normalizedPrefix + name;
-    }
-
-    private static String stripLeadingSlash(String s) {
-        if (s == null || s.isEmpty()) return s;
-        return s.startsWith("/") ? s.substring(1) : s;
     }
 
     /** True if object already exists (HEAD 200). False on 404. Propagates other errors. */
@@ -464,12 +449,4 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
         }
     }
 
-    private static String sanitizeETag(String etag) {
-        if (etag == null) return null;
-        String s = etag.trim();
-        if (s.length() >= 2 && s.startsWith("\"") && s.endsWith("\"")) {
-            return s.substring(1, s.length() - 1);
-        }
-        return s;
-    }
 }

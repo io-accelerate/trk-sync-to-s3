@@ -1,5 +1,6 @@
 package io.accelerate.tracking.sync.testframework.rules;
 
+import io.accelerate.tracking.sync.helpers.FormattingHelper;
 import software.amazon.awssdk.core.async.AsyncRequestBody;
 import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.model.*;
@@ -11,6 +12,9 @@ import java.util.*;
 import java.util.Base64;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
+
+import static io.accelerate.tracking.sync.helpers.FormattingHelper.buildKey;
+import static software.amazon.awssdk.services.s3.model.ChecksumAlgorithm.SHA256;
 
 abstract public class TestBucket {
 
@@ -85,8 +89,7 @@ abstract public class TestBucket {
 
             do {
                 ListMultipartUploadsRequest.Builder b = ListMultipartUploadsRequest.builder()
-                        .bucket(bucketName)
-                        .prefix(bucketPrefix);
+                        .bucket(bucketName);
                 if (keyMarker != null) b = b.keyMarker(keyMarker);
                 if (uploadIdMarker != null) b = b.uploadIdMarker(uploadIdMarker);
 
@@ -118,11 +121,11 @@ abstract public class TestBucket {
     //~~~~ Bucket actions
 
     /** Check if an object exists. */
-    public boolean doesObjectExists(String objectName) {
+    public boolean doesNameExists(String objectName) {
         try {
             HeadObjectRequest request = HeadObjectRequest.builder()
                     .bucket(bucketName)
-                    .key(bucketPrefix + objectName)
+                    .key(buildKey(bucketPrefix, objectName))
                     .build();
             s3AsyncClient.headObject(request).get();
             return true;
@@ -138,11 +141,11 @@ abstract public class TestBucket {
     }
 
     /** Get metadata for an object. */
-    public HeadObjectResponse getObjectMetadata(String remoteName) {
+    public HeadObjectResponse getObjectMetadataForName(String remoteName) {
         try {
             HeadObjectRequest request = HeadObjectRequest.builder()
                     .bucket(bucketName)
-                    .key(buildKey(remoteName))
+                    .key(buildKey(bucketPrefix, remoteName))
                     .build();
             return s3AsyncClient.headObject(request).get();
         } catch (InterruptedException e) {
@@ -154,17 +157,17 @@ abstract public class TestBucket {
     }
 
     /** Get details of multipart uploads for a key. */
-    public Optional<MultipartUpload> getMultipartUploadFor(String remoteName) {
+    public Optional<MultipartUpload> getMultipartUploadForName(String remoteName) {
         try {
             ListMultipartUploadsRequest request = ListMultipartUploadsRequest.builder()
                     .bucket(bucketName)
-                    .prefix(buildKey(remoteName))
+                    .prefix(buildKey(bucketPrefix, remoteName))
                     .build();
 
             ListMultipartUploadsResponse response = s3AsyncClient.listMultipartUploads(request).get();
 
             return response.uploads().stream()
-                    .filter(upload -> upload.key().equals(buildKey(remoteName)))
+                    .filter(upload -> upload.key().equals(buildKey(bucketPrefix, remoteName)))
                     .findFirst();
 
         } catch (InterruptedException e) {
@@ -176,7 +179,7 @@ abstract public class TestBucket {
     }
 
     /** Get parts info for an object key's multipart upload. */
-    public List<Part> getPartsForKey(String remoteName, String uploadId) {
+    public List<Part> getPartsForName(String remoteName, String uploadId) {
         try {
             List<Part> parts = new ArrayList<>();
             Integer partNumberMarker = null;
@@ -184,7 +187,7 @@ abstract public class TestBucket {
             do {
                 ListPartsRequest.Builder b = ListPartsRequest.builder()
                         .bucket(bucketName)
-                        .key(buildKey(remoteName))
+                        .key(buildKey(bucketPrefix, remoteName))
                         .uploadId(uploadId);
                 if (partNumberMarker != null) b.partNumberMarker(partNumberMarker);
 
@@ -205,11 +208,11 @@ abstract public class TestBucket {
 
     /** Upload a single file. */
     @SuppressWarnings("SameParameterValue")
-    public void upload(String remoteName, Path path) {
+    public void uploadByName(String remoteName, Path path) {
         try {
             PutObjectRequest putObjectRequest = PutObjectRequest.builder()
                     .bucket(bucketName)
-                    .key(buildKey(remoteName))
+                    .key(buildKey(bucketPrefix, remoteName))
                     .build();
 
             s3AsyncClient.putObject(putObjectRequest, AsyncRequestBody.fromFile(path)).get();
@@ -228,11 +231,12 @@ abstract public class TestBucket {
     }
 
     /** Start a multipart upload. */
-    public String initiateMultipartUpload(String remoteName) {
+    public String initiateMultipartUploadByName(String remoteName) {
         try {
             CreateMultipartUploadRequest request = CreateMultipartUploadRequest.builder()
                     .bucket(bucketName)
-                    .key(buildKey(remoteName))
+                    .key(buildKey(bucketPrefix, remoteName))
+                    .checksumAlgorithm(SHA256)
                     .build();
 
             CreateMultipartUploadResponse response = s3AsyncClient.createMultipartUpload(request).get();
@@ -246,14 +250,14 @@ abstract public class TestBucket {
     }
 
     /** Upload a part in a multipart upload. */
-    public void uploadPart(String remoteName, String uploadId, byte[] partData, int partNumber) throws NoSuchAlgorithmException {
+    public void uploadPartForName(String remoteName, String uploadId, byte[] partData, int partNumber) throws NoSuchAlgorithmException {
         // Compute SHA256 digest of the part
         String partHash = computeSha256(partData);
 
         try {
             UploadPartRequest request = UploadPartRequest.builder()
                     .bucket(bucketName)
-                    .key(buildKey(remoteName))
+                    .key(buildKey(bucketPrefix, remoteName))
                     .uploadId(uploadId)
                     .partNumber(partNumber)
                     .contentLength((long) partData.length)
@@ -277,19 +281,5 @@ abstract public class TestBucket {
         byte[] hash = digest.digest(data);
         return Base64.getEncoder().encodeToString(hash);
     }
-
-    private String buildKey(String remoteFileName) {
-        String p = this.bucketPrefix;
-        if (p.isEmpty()) {
-            return stripLeadingSlash(remoteFileName);
-        }
-        String normalizedPrefix = p.endsWith("/") ? p : p + "/";
-        String name = stripLeadingSlash(remoteFileName);
-        return normalizedPrefix + name;
-    }
-
-    private static String stripLeadingSlash(String s) {
-        if (s == null || s.isEmpty()) return s;
-        return s.startsWith("/") ? s.substring(1) : s;
-    }
+    
 }
