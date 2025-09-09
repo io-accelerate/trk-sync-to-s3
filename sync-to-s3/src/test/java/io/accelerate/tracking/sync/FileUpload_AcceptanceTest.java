@@ -35,7 +35,7 @@ public class FileUpload_AcceptanceTest {
                 .create();
 
         //Upload first file just to check in test that it will not be uploaded twice
-        RemoteSync sync = new RemoteSync(source, testBucket.asDestination());
+        RemoteSync sync = new RemoteSync(source, testBucket.getS3AsyncClient(), testBucket.getBucketName(), testBucket.getBucketPrefix());
         sync.run();
 
         // Sleep 2 seconds to distinguish that file uploaded_once.txt on aws was not uploaded by next call
@@ -58,7 +58,7 @@ public class FileUpload_AcceptanceTest {
                 .setFilters(filters)
                 .create();
 
-        RemoteSync sync = new RemoteSync(source, testBucket.asDestination());
+        RemoteSync sync = new RemoteSync(source, testBucket.getS3AsyncClient(), testBucket.getBucketName(), testBucket.getBucketPrefix());
         sync.run();
 
         MatcherAssert.assertThat(testBucket.doesObjectExists("sample_small_file_to_upload.txt"), is(true));
@@ -72,7 +72,7 @@ public class FileUpload_AcceptanceTest {
                 .setFilters(filters)
                 .create();
 
-        RemoteSync sync = new RemoteSync(source, testBucket.asDestination());
+        RemoteSync sync = new RemoteSync(source, testBucket.getS3AsyncClient(), testBucket.getBucketName(), testBucket.getBucketPrefix());
         sync.run();
 
         MatcherAssert.assertThat(testBucket.doesObjectExists("large_file.bin"), is(true));

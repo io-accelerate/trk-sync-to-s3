@@ -41,7 +41,7 @@ public class FolderSync_AcceptanceTest {
                 .setRecursive(true)
                 .create();
 
-        RemoteSync directorySync = new RemoteSync(directorySource, testBucket.asDestination());
+        RemoteSync directorySync = new RemoteSync(directorySource, testBucket.getS3AsyncClient(), testBucket.getBucketName(), testBucket.getBucketPrefix());
         directorySync.run();
 
         //state after sync

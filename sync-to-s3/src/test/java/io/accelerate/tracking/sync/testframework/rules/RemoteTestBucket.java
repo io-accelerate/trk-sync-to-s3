@@ -11,9 +11,9 @@ public class RemoteTestBucket extends TestBucket {
         Path privatePropertiesFile = Paths.get(".private", "aws-test-secrets");
         AWSSecretProperties secretsProvider = AWSSecretProperties.fromPlainTextFile(privatePropertiesFile);
 
-        amazonS3 = secretsProvider.createClient();
+        s3AsyncClient = secretsProvider.createClient();
         bucketName = secretsProvider.getS3Bucket();
-        uploadPrefix = secretsProvider.getS3Prefix();
+        bucketPrefix = secretsProvider.getS3Prefix();
     }
 
 }

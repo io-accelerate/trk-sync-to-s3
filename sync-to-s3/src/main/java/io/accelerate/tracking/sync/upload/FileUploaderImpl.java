@@ -2,7 +2,6 @@ package io.accelerate.tracking.sync.upload;
 
 import org.slf4j.Logger;
 import io.accelerate.tracking.sync.helpers.FileHelper;
-import io.accelerate.tracking.sync.sync.destination.Destination;
 import io.accelerate.tracking.sync.sync.destination.DestinationOperationException;
 
 import java.io.File;
@@ -15,12 +14,9 @@ public class FileUploaderImpl implements FileUploader {
 
     private static final int RETRY_TIMES_COUNT = 2;
 
-    private final Destination destination;
-
     private final UploadingStrategy uploadingStrategy;
 
-    FileUploaderImpl(final Destination destination, UploadingStrategy uploadingStrategy) {
-        this.destination = destination;
+    FileUploaderImpl(UploadingStrategy uploadingStrategy) {
         this.uploadingStrategy = uploadingStrategy;
     }
 
@@ -54,7 +50,6 @@ public class FileUploaderImpl implements FileUploader {
     }
 
     private void uploadInternal(File file, String path) throws DestinationOperationException, IOException {
-        uploadingStrategy.setDestination(destination);
         uploadingStrategy.upload(file, path);
     }
 

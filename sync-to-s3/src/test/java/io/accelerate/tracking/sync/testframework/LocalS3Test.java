@@ -4,9 +4,11 @@ import io.accelerate.tracking.sync.testframework.rules.LocalTestBucket;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import software.amazon.awssdk.core.sync.RequestBody;
-import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.core.async.AsyncRequestBody;
+import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.model.*;
+
+import java.util.concurrent.ExecutionException;
 
 public class LocalS3Test {
 
@@ -19,39 +21,50 @@ public class LocalS3Test {
     }
 
     @Test
-    void can_use_minio_server_correctly() {
-        try (S3Client s3 = testBucket.getAmazonS3()) {
+    void can_use_minio_server_correctly() throws Exception {
+        try (S3AsyncClient s3 = testBucket.getS3AsyncClient()) {
             String bucket = "testbucket";
 
             ensureBucketExists(s3, bucket);
 
+            // Upload object
             s3.putObject(
                     PutObjectRequest.builder()
                             .bucket(bucket)
                             .key("file/name")
                             .build(),
-                    RequestBody.fromString("contents")
-            );
+                    AsyncRequestBody.fromString("contents")
+            ).get();
 
-            HeadObjectResponse head =
-                    s3.headObject(HeadObjectRequest.builder()
+            // HeadObject
+            HeadObjectResponse head = s3.headObject(
+                    HeadObjectRequest.builder()
                             .bucket(bucket)
                             .key("file/name")
-                            .build());
+                            .build()
+            ).get();
 
             Assertions.assertNotNull(head.eTag());
         }
     }
 
-    private static void ensureBucketExists(S3Client s3, String bucket) {
+    private static void ensureBucketExists(S3AsyncClient s3, String bucket) {
         try {
-            s3.headBucket(HeadBucketRequest.builder().bucket(bucket).build());
-        } catch (S3Exception e) {
-            if (e.statusCode() == 404) {
-                s3.createBucket(CreateBucketRequest.builder().bucket(bucket).build());
+            s3.headBucket(HeadBucketRequest.builder().bucket(bucket).build()).get();
+        } catch (ExecutionException ee) {
+            Throwable cause = ee.getCause();
+            if (cause instanceof S3Exception s3e && s3e.statusCode() == 404) {
+                try {
+                    s3.createBucket(CreateBucketRequest.builder().bucket(bucket).build()).get();
+                } catch (Exception inner) {
+                    throw new IllegalStateException("Failed to create bucket " + bucket, inner);
+                }
             } else {
-                throw e;
+                throw new IllegalStateException("HeadBucket failed for " + bucket, cause);
             }
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted ensuring bucket exists for " + bucket, ie);
         }
     }
 }

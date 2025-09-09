@@ -59,7 +59,7 @@ public class IncompleteFileUpload_AcceptanceTest {
                 .setRecursive(true)
                 .create();
         
-        RemoteSync directorySync = new RemoteSync(directorySource, testBucket.asDestination());
+        RemoteSync directorySync = new RemoteSync(directorySource, testBucket.getS3AsyncClient(), testBucket.getBucketName(), testBucket.getBucketPrefix());
         directorySync.run();
 
         //Check that the file still not exists on the server
@@ -111,7 +111,7 @@ public class IncompleteFileUpload_AcceptanceTest {
                 .setRecursive(true)
                 .create();
         
-        RemoteSync directorySync = new RemoteSync(directorySource, testBucket.asDestination());
+        RemoteSync directorySync = new RemoteSync(directorySource, testBucket.getS3AsyncClient(), testBucket.getBucketName(), testBucket.getBucketPrefix());
         directorySync.run();
 
         //Check that the file exists on the server
@@ -140,7 +140,7 @@ public class IncompleteFileUpload_AcceptanceTest {
                 .setRecursive(true)
                 .create();
         
-        RemoteSync directorySync = new RemoteSync(directorySource, testBucket.asDestination());
+        RemoteSync directorySync = new RemoteSync(directorySource, testBucket.getS3AsyncClient(), testBucket.getBucketName(), testBucket.getBucketPrefix());
         directorySync.run();
 
         //Check multipart upload exists

@@ -54,8 +54,16 @@ public class SyncFileApp {
     private void run() throws DestinationOperationException {
         // Prepare
         Source source = buildSource();
-        Destination destination = buildDestination();
-        RemoteSync sync = new RemoteSync(source, destination);
+        Path path = Paths.get(configPath);
+        AWSSecretProperties awsSecretProperties = AWSSecretProperties.fromPlainTextFile(path);
+
+        Destination destination = new S3BucketDestination(
+                awsSecretProperties.createClient(),
+                awsSecretProperties.getS3Bucket(),
+                awsSecretProperties.getS3Prefix());
+        
+        
+        RemoteSync sync = new RemoteSync(source, awsSecretProperties.createClient(), awsSecretProperties.getS3Bucket(), awsSecretProperties.getS3Prefix());
 
         // Check destination
         destination.startS3SyncSession();
@@ -94,13 +102,4 @@ public class SyncFileApp {
                 .create();
     }
 
-    private Destination buildDestination() {
-        Path path = Paths.get(configPath);
-        AWSSecretProperties awsSecretProperties = AWSSecretProperties.fromPlainTextFile(path);
-
-        return new S3BucketDestination(
-                awsSecretProperties.createClient(),
-                awsSecretProperties.getS3Bucket(),
-                awsSecretProperties.getS3Prefix());
-    }
 }

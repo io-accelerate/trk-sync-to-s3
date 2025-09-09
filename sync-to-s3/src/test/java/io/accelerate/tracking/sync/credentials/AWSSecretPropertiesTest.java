@@ -2,6 +2,7 @@ package io.accelerate.tracking.sync.credentials;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.S3Client;
 
 import java.nio.file.Path;
@@ -19,7 +20,7 @@ public class AWSSecretPropertiesTest {
         properties.setProperty("aws_session_token", "something");
         
         AWSSecretProperties secretProperties = AWSSecretProperties.fromProperties(properties);
-        S3Client client = secretProperties.createClient();
+        S3AsyncClient client = secretProperties.createClient();
     }
     
     @Test

@@ -6,7 +6,6 @@ import io.accelerate.tracking.sync.sync.progress.DummyProgressListener;
 import io.accelerate.tracking.sync.sync.progress.ProgressListener;
 import org.slf4j.Logger;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
-import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 
 import java.io.File;
 import java.io.IOException;
@@ -47,9 +46,17 @@ public class MultipartUploadFileUploadingStrategy implements UploadingStrategy {
     }
 
     @Override
-    public void upload(File file, String remotePath) throws DestinationOperationException, IOException {
-        MultipartUploadFile multipartUploadFile = new MultipartUploadFile(file, remotePath, destination);
+    public void upload(File sourceFile, String remoteName) throws DestinationOperationException, IOException {
+        // Detect current uploads or build new one
+        MultipartUploadFile multipartUploadFile = new MultipartUploadFile(sourceFile, remoteName, destination);
         multipartUploadFile.validateUploadedFileSize();
+        
+        // Create the list of parts that need to be uploaded
+        
+        // Submit the list to the executor
+        
+        // Wait for completion
+        
         multipartUploadFile.notifyStart(listener);
         uploadRequiredParts(multipartUploadFile);
         multipartUploadFile.notifyFinish(listener);
@@ -58,9 +65,11 @@ public class MultipartUploadFileUploadingStrategy implements UploadingStrategy {
     private void uploadRequiredParts(MultipartUploadFile multipartUploadFile) throws IOException, DestinationOperationException {
         List<CompletedPart> completedParts = multipartUploadFile.getCompletedParts();
 
+        // Get missing parts
         Stream<UploadPartRequestAndBody> failedPartRequestStream = multipartUploadFile.streamUploadPartRequestForFailedParts();
         submitUploadRequestStream(failedPartRequestStream, completedParts);
 
+        // Get new parts
         Stream<UploadPartRequestAndBody> incompletePartRequestStream = multipartUploadFile.streamUploadPartRequestForIncompleteParts();
         submitUploadRequestStream(incompletePartRequestStream, completedParts);
 
@@ -109,10 +118,5 @@ public class MultipartUploadFileUploadingStrategy implements UploadingStrategy {
     @Override
     public void setListener(ProgressListener listener) {
         this.listener = listener;
-    }
-
-    @Override
-    public void setDestination(Destination destination) {
-        this.destination = destination;
     }
 }

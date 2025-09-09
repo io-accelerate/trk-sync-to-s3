@@ -24,7 +24,7 @@ public class FileUploaderImplTest {
                 .when(strategy)
                 .upload(any(), anyString());
 
-        FileUploader uploader = new FileUploaderImpl(destination, strategy);
+        FileUploader uploader = new FileUploaderImpl(strategy);
         File file = mock(File.class);
         when(file.toURI()).thenReturn(new URI("file:///tmp/file1.txt"));
         when(file.getName()).thenReturn("path");
@@ -41,7 +41,7 @@ public class FileUploaderImplTest {
                     .when(strategy)
                     .upload(any(), anyString());
 
-            FileUploader uploader = new FileUploaderImpl(destination, strategy);
+            FileUploader uploader = new FileUploaderImpl(strategy);
             File file = mock(File.class);
             when(file.toURI()).thenReturn(new URI("file:///tmp/file1.txt"));
             when(file.getName()).thenReturn("path");
