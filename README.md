@@ -104,22 +104,42 @@ Source source = Source.getBuilder(/* Path */ pathToFolder)
 
 ### Prepare environment
 
-Configuration for running this service should be placed in file `.private/aws-test-secrets` in Java Properties file format. For examples.
+Configuration for running this service should be placed in file `.private/aws-test-secrets` in Java Properties file format. The supported credential modes are shown below.
+
+#### Static / STS credentials
 
 ```properties
 trk_aws_access_key_id=ABCDEFGHIJKLM
 trk_aws_secret_access_key=ABCDEFGHIJKLM
+trk_aws_session_token=OPTIONAL_SESSION_TOKEN
+trk_s3_region=ap-southeast-1
+trk_s3_bucket=bucketname
+trk_s3_prefix=prefix/
+```
+
+#### Web identity credentials
+
+```properties
+trk_oidc_jwt_token=eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...
+trk_oidc_role_arn=arn:aws:iam::123456789012:role/ExampleRole
+trk_oidc_role_session_name=optional-session-name
+trk_oidc_sts_region=optional-sts-region
 trk_s3_region=ap-southeast-1
 trk_s3_bucket=bucketname
 trk_s3_prefix=prefix/
 ```
 
 The values are:
-* `trk_aws_access_key_id` - access key to the AWS account.
-* `trk_aws_secret_access_key` - secret key to the AWS account.
+* `trk_aws_access_key_id` - access key to the AWS account (static credentials only).
+* `trk_aws_secret_access_key` - secret key to the AWS account (static credentials only).
+* `trk_aws_session_token` - optional session token if temporary credentials are in use.
+* `trk_oidc_jwt_token` - OIDC JWT used to exchange for AWS credentials (web identity only).
+* `trk_oidc_role_arn` - IAM role to assume with the supplied OIDC token (web identity only).
+* `trk_oidc_role_session_name` - optional session name for the AssumeRoleWithWebIdentity request.
+* `trk_oidc_sts_region` - optional region to call STS in (defaults to AWS global endpoint).
 * `trk_s3_region` - this contains the region that holds the S3 bucket.
-* `trk_s3_bucket` the bucket that will store the uploaded files.
-* `trk_s3_prefix` S3 prefix that will be added before all files
+* `trk_s3_bucket` or `trk_upload_bucket` - the bucket that will store the uploaded files.
+* `trk_s3_prefix` - S3 prefix that will be added before all files
 
 ### Run tests
 

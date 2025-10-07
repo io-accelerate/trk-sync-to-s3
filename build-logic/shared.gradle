@@ -22,6 +22,7 @@ dependencies {
     implementation('software.amazon.awssdk:s3:'+awsSdkVersion)
     implementation('software.amazon.awssdk:auth:'+awsSdkVersion)
     implementation('software.amazon.awssdk:regions:'+awsSdkVersion)
+    implementation('software.amazon.awssdk:sts:'+awsSdkVersion)
     
     implementation 'org.slf4j:slf4j-api:2.0.12'
     implementation 'ch.qos.logback:logback-classic:1.5.13'

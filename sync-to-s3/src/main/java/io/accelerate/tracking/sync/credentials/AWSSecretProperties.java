@@ -1,27 +1,56 @@
 package io.accelerate.tracking.sync.credentials;
 
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3AsyncClient;
+import software.amazon.awssdk.services.sts.StsClient;
+import software.amazon.awssdk.services.sts.StsClientBuilder;
+import software.amazon.awssdk.services.sts.auth.StsAssumeRoleWithWebIdentityCredentialsProvider;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Properties;
+import java.util.UUID;
 
 /**
  * Read credentials and bucket information from private properties file.
  *
  * The file should contain the following keys:
+ *  - trk_s3_region
+ *  - trk_s3_bucket (or trk_upload_bucket for legacy configs)
+ *  - trk_s3_prefix (optional)
+ *
+ * For static or STS-style credentials:
  *  - trk_aws_access_key_id
  *  - trk_aws_secret_access_key
- *  - trk_s3_region
- *  - trk_s3_bucket
+ *  - trk_aws_session_token (optional)
+ *
+ * For web identity credentials:
+ *  - trk_oidc_jwt_token
+ *  - trk_oidc_role_arn
+ *  - trk_oidc_role_session_name (optional)
+ *  - trk_oidc_sts_region (optional)
  */
 public class AWSSecretProperties {
+    private static final String KEY_S3_REGION = "trk_s3_region";
+    private static final String KEY_S3_BUCKET = "trk_s3_bucket";
+    private static final String KEY_UPLOAD_BUCKET = "trk_upload_bucket";
+    private static final String KEY_S3_PREFIX = "trk_s3_prefix";
+
+    private static final String KEY_AWS_ACCESS_KEY_ID = "trk_aws_access_key_id";
+    private static final String KEY_AWS_SECRET_ACCESS_KEY = "trk_aws_secret_access_key";
+    private static final String KEY_AWS_SESSION_TOKEN = "trk_aws_session_token";
+
+    private static final String KEY_OIDC_TOKEN = "trk_oidc_jwt_token";
+    private static final String KEY_OIDC_ROLE_ARN = "trk_oidc_role_arn";
+    private static final String KEY_OIDC_ROLE_SESSION_NAME = "trk_oidc_role_session_name";
+    private static final String KEY_OIDC_STS_REGION = "trk_oidc_sts_region";
+
     private final Properties privateProperties;
 
     private AWSSecretProperties(Properties privateProperties) {
@@ -38,31 +67,93 @@ public class AWSSecretProperties {
 
     /** Create an asynchronous S3 client. */
     public S3AsyncClient createClient() {
-        String awsAccessKeyId = privateProperties.getProperty("trk_aws_access_key_id");
-        String awsSecretAccessKey = privateProperties.getProperty("trk_aws_secret_access_key");
-        String awsSessionToken = privateProperties.getProperty("trk_aws_session_token"); // optional
-        String s3Region = privateProperties.getProperty("trk_s3_region");
-
-        var awsCredentials = (awsSessionToken != null && !awsSessionToken.isBlank())
-                ? AwsSessionCredentials.create(awsAccessKeyId, awsSecretAccessKey, awsSessionToken)
-                : AwsBasicCredentials.create(awsAccessKeyId, awsSecretAccessKey);
+        AwsCredentialsProvider credentialsProvider = createCredentialsProvider();
+        String s3Region = requireNonBlank(KEY_S3_REGION);
 
         return S3AsyncClient.builder()
-                .credentialsProvider(StaticCredentialsProvider.create(awsCredentials))
+                .credentialsProvider(credentialsProvider)
                 .region(Region.of(s3Region))
                 .build();
     }
 
 
+    AwsCredentialsProvider createCredentialsProvider() {
+        String oidcToken = getTrimmed(KEY_OIDC_TOKEN);
+        if (oidcToken != null) {
+            return createWebIdentityCredentialsProvider(oidcToken);
+        }
+
+        return createStaticCredentialsProvider();
+    }
+
+    private AwsCredentialsProvider createStaticCredentialsProvider() {
+        String accessKey = requireNonBlank(KEY_AWS_ACCESS_KEY_ID);
+        String secretKey = requireNonBlank(KEY_AWS_SECRET_ACCESS_KEY);
+        String sessionToken = getTrimmed(KEY_AWS_SESSION_TOKEN);
+
+        return (sessionToken != null)
+                ? StaticCredentialsProvider.create(AwsSessionCredentials.create(accessKey, secretKey, sessionToken))
+                : StaticCredentialsProvider.create(AwsBasicCredentials.create(accessKey, secretKey));
+    }
+
+    private AwsCredentialsProvider createWebIdentityCredentialsProvider(String oidcToken) {
+        String roleArn = requireNonBlank(KEY_OIDC_ROLE_ARN);
+        String sessionName = getTrimmed(KEY_OIDC_ROLE_SESSION_NAME);
+        String resolvedSessionName = sessionName != null ? sessionName : defaultSessionName();
+
+        String stsRegion = getTrimmed(KEY_OIDC_STS_REGION);
+
+        StsAssumeRoleWithWebIdentityCredentialsProvider.Builder builder = StsAssumeRoleWithWebIdentityCredentialsProvider.builder()
+                .refreshRequest(requestBuilder -> requestBuilder
+                        .roleArn(roleArn)
+                        .roleSessionName(resolvedSessionName)
+                        .webIdentityToken(oidcToken))
+                .asyncCredentialUpdateEnabled(true);
+
+        StsClientBuilder stsClientBuilder = StsClient.builder();
+        if (stsRegion != null) {
+            stsClientBuilder.region(Region.of(stsRegion));
+        }
+
+        builder.stsClient(stsClientBuilder.build());
+
+        return builder.build();
+    }
+
+    private static String defaultSessionName() {
+        return "trk-sync-to-s3-" + UUID.randomUUID();
+    }
+
     public String getS3Bucket() {
-        return privateProperties.getProperty("trk_s3_bucket");
+        String bucket = getTrimmed(KEY_S3_BUCKET);
+        if (bucket != null) {
+            return bucket;
+        }
+        return getTrimmed(KEY_UPLOAD_BUCKET);
     }
 
     public String getS3Prefix() {
-        return privateProperties.getProperty("trk_s3_prefix");
+        return getTrimmed(KEY_S3_PREFIX);
     }
 
     //~~~ Util
+
+    private String requireNonBlank(String key) {
+        String value = getTrimmed(key);
+        if (value == null) {
+            throw new IllegalStateException("Missing required property '" + key + "'");
+        }
+        return value;
+    }
+
+    private String getTrimmed(String key) {
+        String value = privateProperties.getProperty(key);
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
 
     private static Properties loadPrivateProperties(Path privatePropertiesPath) {
         Properties properties = new Properties();
