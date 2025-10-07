@@ -21,6 +21,16 @@ if [[ $# -eq 0 ]]; then
   exit 1
 fi
 
+aws_region="${trk_s3_region:-}"
+if [[ -z "$aws_region" && -n "${trk_oidc_sts_region:-}" ]]; then
+  aws_region="$trk_oidc_sts_region"
+fi
+
+if [[ -n "$aws_region" ]]; then
+  export AWS_REGION="$aws_region"
+  export AWS_DEFAULT_REGION="$aws_region"
+fi
+
 if [[ -n "${trk_oidc_jwt_token:-}" ]]; then
   if [[ -z "${trk_oidc_role_arn:-}" ]]; then
     echo "Missing trk_oidc_role_arn for web identity credentials." >&2
@@ -28,9 +38,10 @@ if [[ -n "${trk_oidc_jwt_token:-}" ]]; then
   fi
 
   session_name="${trk_oidc_role_session_name:-trk-sync-$(date +%s)}"
+  sts_region="${trk_oidc_sts_region:-${AWS_REGION:-}}"
   region_args=()
-  if [[ -n "${trk_oidc_sts_region:-}" ]]; then
-    region_args+=(--region "$trk_oidc_sts_region")
+  if [[ -n "$sts_region" ]]; then
+    region_args+=(--region "$sts_region")
   fi
 
   unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
