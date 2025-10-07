@@ -102,6 +102,7 @@ public class AWSSecretProperties {
         String resolvedSessionName = sessionName != null ? sessionName : defaultSessionName();
 
         String stsRegion = getTrimmed(KEY_OIDC_STS_REGION);
+         String resolvedStsRegion = stsRegion != null ? stsRegion : requireNonBlank(KEY_S3_REGION);
 
         StsAssumeRoleWithWebIdentityCredentialsProvider.Builder builder = StsAssumeRoleWithWebIdentityCredentialsProvider.builder()
                 .refreshRequest(requestBuilder -> requestBuilder
@@ -110,10 +111,8 @@ public class AWSSecretProperties {
                         .webIdentityToken(oidcToken))
                 .asyncCredentialUpdateEnabled(true);
 
-        StsClientBuilder stsClientBuilder = StsClient.builder();
-        if (stsRegion != null) {
-            stsClientBuilder.region(Region.of(stsRegion));
-        }
+        StsClientBuilder stsClientBuilder = StsClient.builder()
+                .region(Region.of(resolvedStsRegion));
 
         builder.stsClient(stsClientBuilder.build());
 
