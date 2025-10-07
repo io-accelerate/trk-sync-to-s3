@@ -107,19 +107,19 @@ Source source = Source.getBuilder(/* Path */ pathToFolder)
 Configuration for running this service should be placed in file `.private/aws-test-secrets` in Java Properties file format. For examples.
 
 ```properties
-aws_access_key_id=ABCDEFGHIJKLM
-aws_secret_access_key=ABCDEFGHIJKLM
-s3_region=ap-southeast-1
-s3_bucket=bucketname
-s3_prefix=prefix/
+trk_aws_access_key_id=ABCDEFGHIJKLM
+trk_aws_secret_access_key=ABCDEFGHIJKLM
+trk_s3_region=ap-southeast-1
+trk_s3_bucket=bucketname
+trk_s3_prefix=prefix/
 ```
 
 The values are:
-* `aws_access_key_id` - access key to the AWS account.
-* `aws_secret_access_key` - secret key to the AWS account.
-* `s3_region` - this contains the region that holds the S3 bucket.
-* `s3_bucket` the bucket that will store the uploaded files.
-* `s3_prefix` S3 prefix that will be added before all files
+* `trk_aws_access_key_id` - access key to the AWS account.
+* `trk_aws_secret_access_key` - secret key to the AWS account.
+* `trk_s3_region` - this contains the region that holds the S3 bucket.
+* `trk_s3_bucket` the bucket that will store the uploaded files.
+* `trk_s3_prefix` S3 prefix that will be added before all files
 
 ### Run tests
 

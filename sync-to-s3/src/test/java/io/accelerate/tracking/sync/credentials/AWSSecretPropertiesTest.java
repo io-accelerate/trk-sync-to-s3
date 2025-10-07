@@ -14,10 +14,10 @@ public class AWSSecretPropertiesTest {
     @Test
     public void createClientShouldUseBasicSessionIfSessionTokenIsSet() {
         Properties properties = new Properties();
-        properties.setProperty("aws_access_key_id", "something");
-        properties.setProperty("aws_secret_access_key", "something");
-        properties.setProperty("s3_region", "us-east-1");
-        properties.setProperty("aws_session_token", "something");
+        properties.setProperty("trk_aws_access_key_id", "something");
+        properties.setProperty("trk_aws_secret_access_key", "something");
+        properties.setProperty("trk_s3_region", "us-east-1");
+        properties.setProperty("trk_aws_session_token", "something");
         
         AWSSecretProperties secretProperties = AWSSecretProperties.fromProperties(properties);
         S3AsyncClient client = secretProperties.createClient();

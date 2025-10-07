@@ -3,9 +3,9 @@
 
 source "$1"
 
-export AWS_ACCESS_KEY_ID="$aws_access_key_id"
-export AWS_SECRET_ACCESS_KEY="$aws_secret_access_key"
-export AWS_SESSION_TOKEN="$aws_session_token"
+export AWS_ACCESS_KEY_ID="$trk_aws_access_key_id"
+export AWS_SECRET_ACCESS_KEY="$trk_aws_secret_access_key"
+export AWS_SESSION_TOKEN="$trk_aws_session_token"
 
 shift
 aws "$@"

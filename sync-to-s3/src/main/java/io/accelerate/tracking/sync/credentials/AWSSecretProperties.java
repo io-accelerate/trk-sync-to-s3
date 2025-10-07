@@ -16,10 +16,10 @@ import java.util.Properties;
  * Read credentials and bucket information from private properties file.
  *
  * The file should contain the following keys:
- *  - aws_access_key_id
- *  - aws_secret_access_key
- *  - s3_region
- *  - s3_bucket
+ *  - trk_aws_access_key_id
+ *  - trk_aws_secret_access_key
+ *  - trk_s3_region
+ *  - trk_s3_bucket
  */
 public class AWSSecretProperties {
     private final Properties privateProperties;
@@ -38,10 +38,10 @@ public class AWSSecretProperties {
 
     /** Create an asynchronous S3 client. */
     public S3AsyncClient createClient() {
-        String awsAccessKeyId = privateProperties.getProperty("aws_access_key_id");
-        String awsSecretAccessKey = privateProperties.getProperty("aws_secret_access_key");
-        String awsSessionToken = privateProperties.getProperty("aws_session_token"); // optional
-        String s3Region = privateProperties.getProperty("s3_region");
+        String awsAccessKeyId = privateProperties.getProperty("trk_aws_access_key_id");
+        String awsSecretAccessKey = privateProperties.getProperty("trk_aws_secret_access_key");
+        String awsSessionToken = privateProperties.getProperty("trk_aws_session_token"); // optional
+        String s3Region = privateProperties.getProperty("trk_s3_region");
 
         var awsCredentials = (awsSessionToken != null && !awsSessionToken.isBlank())
                 ? AwsSessionCredentials.create(awsAccessKeyId, awsSecretAccessKey, awsSessionToken)
@@ -55,11 +55,11 @@ public class AWSSecretProperties {
 
 
     public String getS3Bucket() {
-        return privateProperties.getProperty("s3_bucket");
+        return privateProperties.getProperty("trk_s3_bucket");
     }
 
     public String getS3Prefix() {
-        return privateProperties.getProperty("s3_prefix");
+        return privateProperties.getProperty("trk_s3_prefix");
     }
 
     //~~~ Util
