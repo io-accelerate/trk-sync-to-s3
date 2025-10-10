@@ -60,23 +60,23 @@ public class UploadStatsProgressListenerTest {
     public void handleTimestampZeroFileUploadStat() throws InterruptedException {
         listener.uploadFileStarted(file, "upload", 0);
         UploadStatsProgressListener.FileUploadStat stat = listener.getCurrentStats().get();
-        assertEquals(0.0, stat.getMBps(), 0.1);
+        assertEquals(0.0, stat.getMegabytesPerSecond(), 0.1);
         clock.advanceMillis(1000);
-        stat.incrementUploadedSize(500000);
-        assertEquals(0.5, stat.getMBps(), 0.01);
+        stat.incrementUploadedBytes(500000);
+        assertEquals(0.5, stat.getMegabytesPerSecond(), 0.01);
     }
 
     @Test
     public void upload() {
         listener.uploadFileStarted(file, "upload", 0);
         UploadStatsProgressListener.FileUploadStat stat = listener.getCurrentStats().get();
-        assertEquals(1000000, stat.getTotalSize());
-        assertEquals(0, stat.getUploadedSize());
+        assertEquals(1000000, stat.getTotalBytes());
+        assertEquals(0, stat.getUploadedBytes());
         assertEquals("Uploaded 0.0% of 0.954 MB at   0.0 MB/sec", renderMetrics(stat));
 
         clock.advanceMillis(2000);
         listener.uploadFileProgress("upload", 500000);
-        assertEquals(500000, stat.getUploadedSize());
+        assertEquals(500000, stat.getUploadedBytes());
         assertEquals(0.5, stat.getUploadRatio(), 0.001);
         assertEquals("Uploaded 50.0% of 0.954 MB at  0.25 MB/sec", renderMetrics(stat));
         listener.uploadFileFinished(file);
@@ -91,15 +91,15 @@ public class UploadStatsProgressListenerTest {
         listener.uploadFileStarted(file, "upload", alreadyUploadedBytes);
 
         UploadStatsProgressListener.FileUploadStat stat = listener.getCurrentStats().get();
-        assertEquals(1000000, stat.getTotalSize());
-        assertEquals(alreadyUploadedBytes, stat.getUploadedSize());
+        assertEquals(1000000, stat.getTotalBytes());
+        assertEquals(alreadyUploadedBytes, stat.getUploadedBytes());
         assertEquals(0.25, stat.getUploadRatio(), 0.001);
         assertEquals("Uploaded 25.0% of 0.954 MB at   0.0 MB/sec", renderMetrics(stat));
 
         clock.advanceMillis(2000);
         listener.uploadFileProgress("upload", 250000);
 
-        assertEquals(500000, stat.getUploadedSize());
+        assertEquals(500000, stat.getUploadedBytes());
         assertEquals(0.5, stat.getUploadRatio(), 0.001);
         assertEquals("Uploaded 50.0% of 0.954 MB at  0.25 MB/sec", renderMetrics(stat));
     }
@@ -119,8 +119,8 @@ public class UploadStatsProgressListenerTest {
         return String.format(DISPLAY_LOCALE,
                 "Uploaded %3s of %3s MB at %5s MB/sec",
                 PERCENTAGE_FORMATTER.format(stat.getUploadRatio()),
-                SIZE_FORMATTER.format(bytesToMegabytes(stat.getTotalSize())),
-                SPEED_FORMATTER.format(stat.getMBps()));
+                SIZE_FORMATTER.format(bytesToMegabytes(stat.getTotalBytes())),
+                SPEED_FORMATTER.format(stat.getMegabytesPerSecond()));
     }
 
     private double bytesToMegabytes(long bytes) {

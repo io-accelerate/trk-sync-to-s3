@@ -17,7 +17,7 @@ public class FileUploadStatConcurrentTest {
 
         public void run() {
             for (int i = 0; i < 1000000; i++) {
-                stat.incrementUploadedSize(1);
+                stat.incrementUploadedBytes(1);
             }
         }
     }
@@ -38,7 +38,7 @@ public class FileUploadStatConcurrentTest {
         thread1.join();
         thread2.join();
 
-        Assertions.assertEquals(stat.getUploadedSize(), total);
+        Assertions.assertEquals(stat.getUploadedBytes(), total);
         Assertions.assertEquals((double) 1, stat.getUploadRatio(), 0.00001);
     }
 }
