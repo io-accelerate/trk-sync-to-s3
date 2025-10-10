@@ -97,7 +97,7 @@ public class FileUpload_AcceptanceTest {
         String expectedEvents = String.join(System.lineSeparator(),
                 "uploadFileStarted(alreadyUploadedBytes=0)",
                 "uploadFileProgress(bytes=5242880)",
-                "uploadFileProgress(bytes=10485760)",
+                "uploadFileProgress(bytes=5242880)",
                 "uploadFileFinished()"
         );
 

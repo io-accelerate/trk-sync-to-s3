@@ -89,9 +89,7 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
                 ));
         final long alreadyUploadedBytes = existingParts.stream().mapToLong(Part::size).sum();
 
-        if (this.listener != null) {
-            try { this.listener.uploadFileStarted(file, session.uploadId(), alreadyUploadedBytes); } catch (Throwable ignored) {}
-        }
+        notifyUploadStarted(file, session.uploadId(), alreadyUploadedBytes);
 
         // 3) Decide parts for this run
         final int maxPartNumberThisRun;
@@ -102,9 +100,7 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
         } else {
             maxPartNumberThisRun = (int) totalPartsIfUnlocked; // include tail
             if (initialSize == 0) {
-                if (this.listener != null) {
-                    try { this.listener.uploadFileFinished(file); } catch (Throwable ignored) {}
-                }
+                notifyUploadFinished(file);
                 return;
             }
             long remainder = initialSize - (PART_SIZE_BYTES * (totalPartsIfUnlocked - 1));
@@ -156,10 +152,8 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
                                     .eTag(FormattingHelper.sanitizeETag(resp.eTag()))   // <--- strip quotes here
                                     .build()
                     );
-                    long current = uploadedSoFar.addAndGet(size);
-                    if (this.listener != null) {
-                        try { this.listener.uploadFileProgress(session.uploadId(), current); } catch (Throwable ignored) {}
-                    }
+                    uploadedSoFar.addAndGet(size);
+                    notifyUploadProgress(session.uploadId(), size);
                     return resp;
                 });
 
@@ -172,6 +166,7 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
 
             // 5) If locked, do not complete; exit so scheduler can run later
             if (lockExists) {
+                notifyUploadFinished(file);
                 return;
             }
 
@@ -193,6 +188,7 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
                             .orElse(null);
                     if (p == null) {
                         // Missing part. Exit without completing so the next run can recover.
+                        notifyUploadFinished(file);
                         return;
                     }
                     allParts.add(p);
@@ -207,9 +203,7 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
                     .build()
             ).join();
 
-            if (this.listener != null) {
-                try { this.listener.uploadFileFinished(file); } catch (Throwable ignored) {}
-            }
+            notifyUploadFinished(file);
 
         } catch (Throwable t) {
             // Do not abort to preserve resumability across scheduled runs
@@ -300,6 +294,30 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
             throw new SyncException("Interrupted listing parts", ie);
         } catch (ExecutionException ee) {
             throw new SyncException("Failed listing parts", ee.getCause());
+        }
+    }
+
+    private void notifyUploadStarted(File file, String uploadId, long alreadyUploadedBytes) {
+        if (this.listener == null) return;
+        try {
+            this.listener.uploadFileStarted(file, uploadId, alreadyUploadedBytes);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void notifyUploadProgress(String uploadId, long uploadedBytes) {
+        if (this.listener == null) return;
+        try {
+            this.listener.uploadFileProgress(uploadId, uploadedBytes);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void notifyUploadFinished(File file) {
+        if (this.listener == null) return;
+        try {
+            this.listener.uploadFileFinished(file);
+        } catch (Throwable ignored) {
         }
     }
 
