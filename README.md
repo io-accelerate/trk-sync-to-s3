@@ -176,7 +176,7 @@ Run the local tests
 ```bash
 ./gradlew clean shadowJar -i
 java -Dlogback.configurationFile=`pwd`/logback.xml \
-    -jar ./sync-to-s3-cli/build/libs/sync-to-s3-cli-0.0.28-all.jar \
+    -jar ./sync-to-s3-cli/build/libs/sync-to-s3-cli-0.0.29-all.jar \
     -c build/credentials.config \
     -d sync-to-s3/src/test/resources/test_a_1
 ```

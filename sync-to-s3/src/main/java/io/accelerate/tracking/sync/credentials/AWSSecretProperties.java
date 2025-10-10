@@ -1,6 +1,7 @@
 package io.accelerate.tracking.sync.credentials;
 
 import org.slf4j.Logger;
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
@@ -77,7 +78,7 @@ public class AWSSecretProperties {
         AwsCredentialsProvider credentialsProvider = createCredentialsProvider();
         String s3Region = requireNonBlank(KEY_S3_REGION);
 
-        log.info("Creating S3 async client for region '" + s3Region + "'.");
+        log.debug("Creating S3 async client for region '" + s3Region + "'.");
 
         return S3AsyncClient.builder()
                 .credentialsProvider(credentialsProvider)
@@ -87,14 +88,16 @@ public class AWSSecretProperties {
 
 
     AwsCredentialsProvider createCredentialsProvider() {
-        log.info("Selecting AWS credentials provider. Available credential keys: " + describeAvailableCredentialKeys());
+        log.debug("Selecting AWS credentials provider. Available credential keys: " + describeAvailableCredentialKeys());
         String oidcToken = getTrimmed(KEY_OIDC_TOKEN);
         if (oidcToken != null) {
             log.info("Using web identity credentials provider.");
             return createWebIdentityCredentialsProvider(oidcToken);
+        } else {
+            log.info("Using static AWS credentials provider.");
         }
 
-        log.info("Using static AWS credentials provider. Session token present: " + (getTrimmed(KEY_AWS_SESSION_TOKEN) != null));
+        log.debug("Using static AWS credentials provider. Session token present: " + (getTrimmed(KEY_AWS_SESSION_TOKEN) != null));
         return createStaticCredentialsProvider();
     }
 
@@ -126,11 +129,12 @@ public class AWSSecretProperties {
                 .asyncCredentialUpdateEnabled(true);
 
         StsClientBuilder stsClientBuilder = StsClient.builder()
-                .region(Region.of(resolvedStsRegion));
+                .region(Region.of(resolvedStsRegion))
+                .credentialsProvider(AnonymousCredentialsProvider.create());
 
         builder.stsClient(stsClientBuilder.build());
 
-        log.info("Constructed web identity credentials provider for role '" + roleArn
+        log.debug("Constructed web identity credentials provider for role '" + roleArn
                 + "', session name '" + resolvedSessionName + "', sts region '" + resolvedStsRegion
                 + "'. Session name provided: " + (sessionName != null));
 
