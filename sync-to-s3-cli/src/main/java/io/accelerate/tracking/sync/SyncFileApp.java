@@ -67,9 +67,9 @@ public class SyncFileApp {
                 uploadStatsProgressListener.getCurrentStats().ifPresent(fileUploadStat -> System.out.println("\rUploaded : "
                         + percentageFormatter.format(fileUploadStat.getUploadRatio())
                         + ". "
-                        + fileUploadStat.getUploadedSize() + "/" + fileUploadStat.getTotalSize()
+                        + fileUploadStat.getUploadedBytes() + "/" + fileUploadStat.getTotalBytes()
                         + " bytes. "
-                        + uploadSpeedFormatter.format(fileUploadStat.getMBps())
+                        + uploadSpeedFormatter.format(fileUploadStat.getMegabytesPerSecond())
                         + " Mbps"));
             }
         }, 0, 1000);

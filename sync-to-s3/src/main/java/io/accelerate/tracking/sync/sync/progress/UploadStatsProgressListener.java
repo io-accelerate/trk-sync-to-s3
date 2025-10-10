@@ -1,7 +1,9 @@
 package io.accelerate.tracking.sync.sync.progress;
 
 import java.io.File;
-import java.util.Date;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -9,62 +11,73 @@ public class UploadStatsProgressListener implements ProgressListener {
 
     public static class FileUploadStat {
 
-        private final double BYTE_PER_MILLISECOND_TO_MEGABYTES_PER_SECOND = 0.001;
+        private static final double BYTES_PER_MILLISECOND_TO_MEGABYTES_PER_SECOND_MULTIPLIER = 0.001d;
 
-        private long totalSize = 0;
-        
-        private final AtomicLong uploadedSize;
+        private final Clock clock;
+        private final Instant uploadStartInstant;
+        private final long totalBytes;
+        private final AtomicLong uploadedBytes;
 
-        private long startTimestamp = 0;
-
-        FileUploadStat(long totalSize, long uploadedByte) {
-            this.totalSize = totalSize;
-            this.startTimestamp = new Date().getTime();
-            this.uploadedSize = new AtomicLong(uploadedByte);
+        FileUploadStat(Clock clock, long totalBytes, long alreadyUploadedBytes) {
+            this.clock = clock;
+            this.totalBytes = totalBytes;
+            this.uploadStartInstant = clock.instant();
+            this.uploadedBytes = new AtomicLong(alreadyUploadedBytes);
         }
 
-        public long getTotalSize() {
-            return totalSize;
+        public long getTotalBytes() {
+            return totalBytes;
         }
 
-        public long getUploadedSize() {
-            return uploadedSize.get();
+        public long getUploadedBytes() {
+            return uploadedBytes.get();
         }
 
-        void incrementUploadedSize(long size) {
-            this.uploadedSize.getAndAdd(size);
+        void incrementUploadedBytes(long additionalUploadedBytes) {
+            uploadedBytes.getAndAdd(additionalUploadedBytes);
         }
 
-        public double getMBps() {
-            double elapsedMilliseconds = (new Date().getTime() - this.startTimestamp);
-            if (elapsedMilliseconds == 0) {
+        public double getMegabytesPerSecond() {
+            long elapsedTimeMillis = Duration.between(uploadStartInstant, clock.instant()).toMillis();
+            if (elapsedTimeMillis <= 0) {
                 return 0;
             }
-            double bytesUploaded = (double) this.uploadedSize.get();
-            double bytePerMillisecond = bytesUploaded / elapsedMilliseconds;
-            return bytePerMillisecond * BYTE_PER_MILLISECOND_TO_MEGABYTES_PER_SECOND;
+            double totalUploadedBytes = (double) uploadedBytes.get();
+            double bytesPerMillisecond = totalUploadedBytes / elapsedTimeMillis;
+            return bytesPerMillisecond * BYTES_PER_MILLISECOND_TO_MEGABYTES_PER_SECOND_MULTIPLIER;
         }
 
         public double getUploadRatio() {
-            return (double) uploadedSize.get() / (double) totalSize;
+            return (double) uploadedBytes.get() / (double) totalBytes;
         }
     }
 
-    private FileUploadStat fileUploadStat = null;
+    private FileUploadStat activeUploadStat = null;
+    private final Clock clock;
 
-    @Override
-    public void uploadFileStarted(File file, String uploadId, long uploadedByte) {
-        fileUploadStat = new FileUploadStat(file.length(), uploadedByte);
+    public UploadStatsProgressListener() {
+        this(Clock.systemUTC());
+    }
+
+    public UploadStatsProgressListener(Clock clock) {
+        this.clock = clock;
     }
 
     @Override
-    public void uploadFileProgress(String uploadId, long uploadedByte) {
-        fileUploadStat.incrementUploadedSize(uploadedByte);
+    public void uploadFileStarted(File file, String uploadId, long alreadyUploadedBytes) {
+        activeUploadStat = new FileUploadStat(clock, file.length(), alreadyUploadedBytes);
+    }
+
+    @Override
+    public void uploadFileProgress(String uploadId, long bytesUploadedSinceLastReport) {
+        if (activeUploadStat != null) {
+            activeUploadStat.incrementUploadedBytes(bytesUploadedSinceLastReport);
+        }
     }
 
     @Override
     public void uploadFileFinished(File file) {
-        fileUploadStat = null;
+        activeUploadStat = null;
     }
 
 
@@ -73,11 +86,11 @@ public class UploadStatsProgressListener implements ProgressListener {
 
     public Optional<FileUploadStat> getCurrentStats() {
         //TODO Improve this class so that it can handle multiple uploads simultaneously
-        return Optional.ofNullable(fileUploadStat);
+        return Optional.ofNullable(activeUploadStat);
     }
 
 
     public boolean isCurrentlyUploading() {
-        return fileUploadStat != null;
+        return activeUploadStat != null;
     }
 }

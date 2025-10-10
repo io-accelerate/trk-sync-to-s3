@@ -3,6 +3,8 @@ package io.accelerate.tracking.sync.sync.progress;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.time.Clock;
+
 public class FileUploadStatConcurrentTest {
 
     class CounterRunnable implements Runnable {
@@ -15,7 +17,7 @@ public class FileUploadStatConcurrentTest {
 
         public void run() {
             for (int i = 0; i < 1000000; i++) {
-                stat.incrementUploadedSize(1);
+                stat.incrementUploadedBytes(1);
             }
         }
     }
@@ -23,7 +25,7 @@ public class FileUploadStatConcurrentTest {
     @Test
     public void incrementUploadSizeInRaceCondition() throws InterruptedException {
         long total = 1000000 * 2;
-        UploadStatsProgressListener.FileUploadStat stat = new UploadStatsProgressListener.FileUploadStat(total, 0);
+        UploadStatsProgressListener.FileUploadStat stat = new UploadStatsProgressListener.FileUploadStat(Clock.systemUTC(), total, 0);
 
         Thread thread1 = new Thread(new CounterRunnable(stat));
         thread1.setName("add thread");
@@ -36,7 +38,7 @@ public class FileUploadStatConcurrentTest {
         thread1.join();
         thread2.join();
 
-        Assertions.assertEquals(stat.getUploadedSize(), total);
+        Assertions.assertEquals(stat.getUploadedBytes(), total);
         Assertions.assertEquals((double) 1, stat.getUploadRatio(), 0.00001);
     }
 }

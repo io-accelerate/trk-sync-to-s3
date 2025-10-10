@@ -89,9 +89,8 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
                 ));
         final long alreadyUploadedBytes = existingParts.stream().mapToLong(Part::size).sum();
 
-        ProgressListener l = this.listener;
-        if (l != null) {
-            try { l.uploadFileStarted(file, session.uploadId(), alreadyUploadedBytes); } catch (Throwable ignored) {}
+        if (this.listener != null) {
+            try { this.listener.uploadFileStarted(file, session.uploadId(), alreadyUploadedBytes); } catch (Throwable ignored) {}
         }
 
         // 3) Decide parts for this run
@@ -158,9 +157,8 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
                                     .build()
                     );
                     long current = uploadedSoFar.addAndGet(size);
-                    ProgressListener pl = this.listener;
-                    if (pl != null) {
-                        try { pl.uploadFileProgress(session.uploadId(), current); } catch (Throwable ignored) {}
+                    if (this.listener != null) {
+                        try { this.listener.uploadFileProgress(session.uploadId(), current); } catch (Throwable ignored) {}
                     }
                     return resp;
                 });
