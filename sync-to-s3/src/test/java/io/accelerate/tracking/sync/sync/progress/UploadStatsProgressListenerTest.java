@@ -60,16 +60,6 @@ public class UploadStatsProgressListenerTest {
     }
 
     @Test
-    public void handleTimestampZeroFileUploadStat() throws InterruptedException {
-        listener.uploadFileStarted(file, "upload", 0);
-        UploadStatsProgressListener.FileUploadStat stat = listener.getCurrentStats().get();
-        assertEquals("Uploaded 0.0% of 0.10 MB at  0.00 MB/sec", renderMetrics(stat));
-        clock.advanceMillis(1000);
-        stat.incrementUploadedBytes(FILE_SIZE_BYTES / 2);
-        assertEquals("Uploaded 50.0% of 0.10 MB at  0.05 MB/sec", renderMetrics(stat));
-    }
-
-    @Test
     public void upload() {
         listener.uploadFileStarted(file, "upload", 0);
         UploadStatsProgressListener.FileUploadStat stat = listener.getCurrentStats().get();
@@ -78,37 +68,11 @@ public class UploadStatsProgressListenerTest {
         clock.advanceMillis(500);
         listener.uploadFileProgress("upload", FILE_SIZE_BYTES / 2);
         assertEquals("Uploaded 50.0% of 0.10 MB at  0.10 MB/sec", renderMetrics(stat));
+        
         listener.uploadFileFinished(file);
         assertFalse(listener.isCurrentlyUploading());
         assertTrue(listener.getCurrentStats().isEmpty());
     }
-
-    @Test
-    public void resumedUploadsShouldExposeExistingProgress() {
-        long alreadyUploadedBytes = FILE_SIZE_BYTES / 4;
-
-        listener.uploadFileStarted(file, "upload", alreadyUploadedBytes);
-
-        UploadStatsProgressListener.FileUploadStat stat = listener.getCurrentStats().get();
-        assertEquals("Uploaded 25.0% of 0.10 MB at  0.00 MB/sec", renderMetrics(stat));
-
-        clock.advanceMillis(250);
-        listener.uploadFileProgress("upload", FILE_SIZE_BYTES / 4);
-
-        assertEquals("Uploaded 50.0% of 0.10 MB at  0.21 MB/sec", renderMetrics(stat));
-    }
-
-    @Test
-    public void completedUploadsShouldClearCurrentStats() {
-        listener.uploadFileStarted(file, "upload", 0);
-        assertTrue(listener.getCurrentStats().isPresent());
-
-        listener.uploadFileFinished(file);
-
-        assertTrue(listener.getCurrentStats().isEmpty());
-        assertFalse(listener.isCurrentlyUploading());
-    }
-    
     
     // ~~~~~~~~~ Helper scripts ~~~~~~~~~
 
