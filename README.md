@@ -176,10 +176,9 @@ Run the local tests
 ```bash
 ./gradlew clean shadowJar -i
 java -Dlogback.configurationFile=`pwd`/logback.xml \
-    -jar ./sync-to-s3-cli/build/libs/sync-to-s3-cli-0.0.17-all.jar \
-    -c ./.private/aws-test-secrets \
-    -d ./src/test/resources/test_a_1 \
-    --filter "^[0-9a-zA-Z\\_]+\\.txt$"
+    -jar ./sync-to-s3-cli/build/libs/sync-to-s3-cli-0.0.28-all.jar \
+    -c build/credentials.config \
+    -d sync-to-s3/src/test/resources/test_a_1
 ```
 
 ### Install to mavenLocal

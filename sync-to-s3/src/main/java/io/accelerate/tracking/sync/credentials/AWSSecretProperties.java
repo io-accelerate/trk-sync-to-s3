@@ -1,5 +1,6 @@
 package io.accelerate.tracking.sync.credentials;
 
+import org.slf4j.Logger;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
@@ -14,8 +15,12 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Properties;
 import java.util.UUID;
+
+import static org.slf4j.LoggerFactory.getLogger;
 
 /**
  * Read credentials and bucket information from private properties file.
@@ -37,6 +42,8 @@ import java.util.UUID;
  *  - trk_oidc_sts_region (optional)
  */
 public class AWSSecretProperties {
+    private static final Logger log = getLogger(AWSSecretProperties.class);
+
     private static final String KEY_S3_REGION = "trk_s3_region";
     private static final String KEY_S3_BUCKET = "trk_s3_bucket";
     private static final String KEY_UPLOAD_BUCKET = "trk_upload_bucket";
@@ -70,6 +77,8 @@ public class AWSSecretProperties {
         AwsCredentialsProvider credentialsProvider = createCredentialsProvider();
         String s3Region = requireNonBlank(KEY_S3_REGION);
 
+        log.info("Creating S3 async client for region '" + s3Region + "'.");
+
         return S3AsyncClient.builder()
                 .credentialsProvider(credentialsProvider)
                 .region(Region.of(s3Region))
@@ -78,11 +87,14 @@ public class AWSSecretProperties {
 
 
     AwsCredentialsProvider createCredentialsProvider() {
+        log.info("Selecting AWS credentials provider. Available credential keys: " + describeAvailableCredentialKeys());
         String oidcToken = getTrimmed(KEY_OIDC_TOKEN);
         if (oidcToken != null) {
+            log.info("Using web identity credentials provider.");
             return createWebIdentityCredentialsProvider(oidcToken);
         }
 
+        log.info("Using static AWS credentials provider. Session token present: " + (getTrimmed(KEY_AWS_SESSION_TOKEN) != null));
         return createStaticCredentialsProvider();
     }
 
@@ -90,6 +102,8 @@ public class AWSSecretProperties {
         String accessKey = requireNonBlank(KEY_AWS_ACCESS_KEY_ID);
         String secretKey = requireNonBlank(KEY_AWS_SECRET_ACCESS_KEY);
         String sessionToken = getTrimmed(KEY_AWS_SESSION_TOKEN);
+
+        log.info("Constructed static credentials provider. Session token present: " + (sessionToken != null));
 
         return (sessionToken != null)
                 ? StaticCredentialsProvider.create(AwsSessionCredentials.create(accessKey, secretKey, sessionToken))
@@ -102,7 +116,7 @@ public class AWSSecretProperties {
         String resolvedSessionName = sessionName != null ? sessionName : defaultSessionName();
 
         String stsRegion = getTrimmed(KEY_OIDC_STS_REGION);
-         String resolvedStsRegion = stsRegion != null ? stsRegion : requireNonBlank(KEY_S3_REGION);
+        String resolvedStsRegion = stsRegion != null ? stsRegion : requireNonBlank(KEY_S3_REGION);
 
         StsAssumeRoleWithWebIdentityCredentialsProvider.Builder builder = StsAssumeRoleWithWebIdentityCredentialsProvider.builder()
                 .refreshRequest(requestBuilder -> requestBuilder
@@ -115,6 +129,10 @@ public class AWSSecretProperties {
                 .region(Region.of(resolvedStsRegion));
 
         builder.stsClient(stsClientBuilder.build());
+
+        log.info("Constructed web identity credentials provider for role '" + roleArn
+                + "', session name '" + resolvedSessionName + "', sts region '" + resolvedStsRegion
+                + "'. Session name provided: " + (sessionName != null));
 
         return builder.build();
     }
@@ -136,6 +154,36 @@ public class AWSSecretProperties {
     }
 
     //~~~ Util
+
+    private String describeAvailableCredentialKeys() {
+        List<String> availableKeys = new ArrayList<>();
+        if (hasValue(KEY_AWS_ACCESS_KEY_ID)) {
+            availableKeys.add(KEY_AWS_ACCESS_KEY_ID);
+        }
+        if (hasValue(KEY_AWS_SECRET_ACCESS_KEY)) {
+            availableKeys.add(KEY_AWS_SECRET_ACCESS_KEY);
+        }
+        if (hasValue(KEY_AWS_SESSION_TOKEN)) {
+            availableKeys.add(KEY_AWS_SESSION_TOKEN);
+        }
+        if (hasValue(KEY_OIDC_TOKEN)) {
+            availableKeys.add(KEY_OIDC_TOKEN);
+        }
+        if (hasValue(KEY_OIDC_ROLE_ARN)) {
+            availableKeys.add(KEY_OIDC_ROLE_ARN);
+        }
+        if (hasValue(KEY_OIDC_ROLE_SESSION_NAME)) {
+            availableKeys.add(KEY_OIDC_ROLE_SESSION_NAME);
+        }
+        if (hasValue(KEY_OIDC_STS_REGION)) {
+            availableKeys.add(KEY_OIDC_STS_REGION);
+        }
+        return availableKeys.isEmpty() ? "none" : String.join(", ", availableKeys);
+    }
+
+    private boolean hasValue(String key) {
+        return getTrimmed(key) != null;
+    }
 
     private String requireNonBlank(String key) {
         String value = getTrimmed(key);
