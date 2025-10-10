@@ -3,6 +3,7 @@ package io.accelerate.tracking.sync.upload;
 import io.accelerate.tracking.sync.helpers.FileHelper;
 import io.accelerate.tracking.sync.helpers.FormattingHelper;
 import io.accelerate.tracking.sync.sync.SyncException;
+import io.accelerate.tracking.sync.sync.progress.DummyProgressListener;
 import io.accelerate.tracking.sync.sync.progress.ProgressListener;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
@@ -24,7 +25,6 @@ import java.util.*;
 import java.util.Base64;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -40,7 +40,7 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
     private final S3AsyncClient s3;
     private final String bucket;
     private final String prefix; // logical "folder" prefix like "foo/bar/"
-    private volatile ProgressListener listener;
+    private volatile ProgressListener listener = new DummyProgressListener();
 
     public MultipartUploadingStrategy(S3AsyncClient s3, String bucket, String prefix) {
         this.s3 = Objects.requireNonNull(s3, "s3");
@@ -50,7 +50,7 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
 
     @Override
     public void setListener(ProgressListener listener) {
-        this.listener = listener;
+        this.listener = listener == null ? new DummyProgressListener() : listener;
     }
 
     record ExistingPart(String eTag, String checksumSHA256) {
@@ -89,9 +89,7 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
                 ));
         final long alreadyUploadedBytes = existingParts.stream().mapToLong(Part::size).sum();
 
-        if (this.listener != null) {
-            try { this.listener.uploadFileStarted(file, session.uploadId(), alreadyUploadedBytes); } catch (Throwable ignored) {}
-        }
+        this.listener.uploadFileStarted(file, session.uploadId(), alreadyUploadedBytes);
 
         // 3) Decide parts for this run
         final int maxPartNumberThisRun;
@@ -102,9 +100,7 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
         } else {
             maxPartNumberThisRun = (int) totalPartsIfUnlocked; // include tail
             if (initialSize == 0) {
-                if (this.listener != null) {
-                    try { this.listener.uploadFileFinished(file); } catch (Throwable ignored) {}
-                }
+                this.listener.uploadFileFinished(file);
                 return;
             }
             long remainder = initialSize - (PART_SIZE_BYTES * (totalPartsIfUnlocked - 1));
@@ -119,7 +115,6 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
 
         final List<CompletedPart> newCompletedParts = Collections.synchronizedList(new ArrayList<>());
         final List<CompletableFuture<?>> inFlight = new ArrayList<>();
-        final AtomicLong uploadedSoFar = new AtomicLong(alreadyUploadedBytes);
 
         try {
             // 4) Upload missing parts, respecting concurrency
@@ -156,10 +151,7 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
                                     .eTag(FormattingHelper.sanitizeETag(resp.eTag()))   // <--- strip quotes here
                                     .build()
                     );
-                    long current = uploadedSoFar.addAndGet(size);
-                    if (this.listener != null) {
-                        try { this.listener.uploadFileProgress(session.uploadId(), current); } catch (Throwable ignored) {}
-                    }
+                    this.listener.uploadFileProgress(session.uploadId(), size);
                     return resp;
                 });
 
@@ -172,6 +164,7 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
 
             // 5) If locked, do not complete; exit so scheduler can run later
             if (lockExists) {
+                this.listener.uploadFileFinished(file);
                 return;
             }
 
@@ -193,6 +186,7 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
                             .orElse(null);
                     if (p == null) {
                         // Missing part. Exit without completing so the next run can recover.
+                        this.listener.uploadFileFinished(file);
                         return;
                     }
                     allParts.add(p);
@@ -207,9 +201,7 @@ public class MultipartUploadingStrategy implements UploadingStrategy, Closeable 
                     .build()
             ).join();
 
-            if (this.listener != null) {
-                try { this.listener.uploadFileFinished(file); } catch (Throwable ignored) {}
-            }
+            this.listener.uploadFileFinished(file);
 
         } catch (Throwable t) {
             // Do not abort to preserve resumability across scheduled runs

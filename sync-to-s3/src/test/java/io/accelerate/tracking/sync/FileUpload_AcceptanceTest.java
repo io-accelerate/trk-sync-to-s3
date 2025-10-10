@@ -1,14 +1,16 @@
 package io.accelerate.tracking.sync;
 
+import io.accelerate.tracking.sync.sync.Filters;
+import io.accelerate.tracking.sync.sync.RemoteSync;
+import io.accelerate.tracking.sync.sync.Source;
+import io.accelerate.tracking.sync.testframework.listeners.RecordingProgressListener;
+import io.accelerate.tracking.sync.testframework.rules.LocalTestBucket;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+
 import org.hamcrest.MatcherAssert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import io.accelerate.tracking.sync.sync.Filters;
-import io.accelerate.tracking.sync.sync.RemoteSync;
-import io.accelerate.tracking.sync.sync.Source;
-import io.accelerate.tracking.sync.testframework.rules.LocalTestBucket;
-import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -75,6 +77,31 @@ public class FileUpload_AcceptanceTest {
         RemoteSync sync = new RemoteSync(source, testBucket.getS3AsyncClient(), testBucket.getBucketName(), testBucket.getBucketPrefix());
         sync.run();
 
+        MatcherAssert.assertThat(testBucket.doesNameExists("large_file.bin"), is(true));
+    }
+
+    @Test
+    public void should_record_listener_events_for_completed_multipart_upload() throws Exception {
+        Path path = Paths.get("src/test/resources/test_a_3/");
+        Filters filters = Filters.getBuilder().include(Filters.endsWith("bin")).create();
+        Source source = Source.getBuilder(path)
+                .setFilters(filters)
+                .create();
+
+        RemoteSync sync = new RemoteSync(source, testBucket.getS3AsyncClient(), testBucket.getBucketName(), testBucket.getBucketPrefix());
+        RecordingProgressListener recordingListener = new RecordingProgressListener();
+        sync.setListener(recordingListener);
+
+        sync.run();
+
+        String expectedEvents = String.join(System.lineSeparator(),
+                "uploadFileStarted(alreadyUploadedBytes=0)",
+                "uploadFileProgress(bytes=5242880)",
+                "uploadFileProgress(bytes=5242880)",
+                "uploadFileFinished()"
+        );
+
+        Assertions.assertEquals(expectedEvents, recordingListener.render());
         MatcherAssert.assertThat(testBucket.doesNameExists("large_file.bin"), is(true));
     }
 
