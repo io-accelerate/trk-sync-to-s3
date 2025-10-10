@@ -1,16 +1,16 @@
 package io.accelerate.tracking.sync;
 
 import io.accelerate.tracking.sync.helpers.FormattingHelper;
-import org.hamcrest.MatcherAssert;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import io.accelerate.tracking.sync.sync.Filters;
 import io.accelerate.tracking.sync.sync.RemoteSync;
 import io.accelerate.tracking.sync.sync.Source;
 import io.accelerate.tracking.sync.testframework.rules.LocalTestBucket;
 import io.accelerate.tracking.sync.testframework.rules.TemporarySyncFolder;
+import io.accelerate.tracking.sync.testframework.listeners.RecordingProgressListener;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import software.amazon.awssdk.services.s3.model.MultipartUpload;
 import software.amazon.awssdk.services.s3.model.Part;
 
@@ -83,6 +83,34 @@ public class IncompleteFileUpload_AcceptanceTest {
     private void comparePart(Part part, Map<Integer, String> hashes) {
         int partNumber = part.partNumber();
         Assertions.assertEquals(hashes.get(partNumber), sanitizeETag(part.eTag()));
+    }
+
+    @Test
+    public void should_record_listener_events_for_locked_multipart_upload() throws Exception {
+        String fileName = "unfinished_writing_file.bin";
+        targetSyncFolder.addFileFromResources(fileName);
+        targetSyncFolder.lock(fileName);
+
+        Source directorySource = Source.getBuilder(targetSyncFolder.getFolderPath())
+                .setFilters(defaultFilters)
+                .setRecursive(true)
+                .create();
+
+        RemoteSync directorySync = new RemoteSync(directorySource, testBucket.getS3AsyncClient(), testBucket.getBucketName(), testBucket.getBucketPrefix());
+        RecordingProgressListener recordingListener = new RecordingProgressListener();
+        directorySync.setListener(recordingListener);
+
+        directorySync.run();
+
+        String expectedEvents = String.join(System.lineSeparator(),
+                "uploadFileStarted(alreadyUploadedBytes=0)",
+                "uploadFileProgress(bytes=5242880)",
+                "uploadFileProgress(bytes=10485760)"
+        );
+
+        Assertions.assertEquals(expectedEvents, recordingListener.render());
+        Assertions.assertTrue(testBucket.getMultipartUploadForName(fileName).isPresent());
+        Assertions.assertFalse(testBucket.doesNameExists(fileName));
     }
 
     @Test
