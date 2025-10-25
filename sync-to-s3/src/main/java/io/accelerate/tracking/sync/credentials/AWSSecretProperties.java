@@ -11,15 +11,19 @@ import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.sts.StsClient;
 import software.amazon.awssdk.services.sts.StsClientBuilder;
 import software.amazon.awssdk.services.sts.auth.StsAssumeRoleWithWebIdentityCredentialsProvider;
+import software.amazon.awssdk.services.sts.model.AssumeRoleWithWebIdentityRequest;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.net.http.HttpClient;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Properties;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 import static org.slf4j.LoggerFactory.getLogger;
 
@@ -60,9 +64,15 @@ public class AWSSecretProperties {
     private static final String KEY_OIDC_STS_REGION = "trk_oidc_sts_region";
 
     private final Properties privateProperties;
+    private final OidcTokenRefreshClient oidcTokenRefreshClient;
 
     private AWSSecretProperties(Properties privateProperties) {
+        this(privateProperties, new HttpOidcTokenRefreshClient(HttpClient.newHttpClient()));
+    }
+
+    AWSSecretProperties(Properties privateProperties, OidcTokenRefreshClient oidcTokenRefreshClient) {
         this.privateProperties = privateProperties;
+        this.oidcTokenRefreshClient = Objects.requireNonNull(oidcTokenRefreshClient, "oidcTokenRefreshClient");
     }
 
     public static AWSSecretProperties fromPlainTextFile(Path plainTextPropertyFile) {
@@ -71,6 +81,10 @@ public class AWSSecretProperties {
 
     public static AWSSecretProperties fromProperties(Properties privateProperties) {
         return new AWSSecretProperties(privateProperties);
+    }
+
+    static AWSSecretProperties fromProperties(Properties privateProperties, OidcTokenRefreshClient oidcTokenRefreshClient) {
+        return new AWSSecretProperties(privateProperties, oidcTokenRefreshClient);
     }
 
     /** Create an asynchronous S3 client. */
@@ -122,10 +136,7 @@ public class AWSSecretProperties {
         String resolvedStsRegion = stsRegion != null ? stsRegion : requireNonBlank(KEY_S3_REGION);
 
         StsAssumeRoleWithWebIdentityCredentialsProvider.Builder builder = StsAssumeRoleWithWebIdentityCredentialsProvider.builder()
-                .refreshRequest(requestBuilder -> requestBuilder
-                        .roleArn(roleArn)
-                        .roleSessionName(resolvedSessionName)
-                        .webIdentityToken(oidcToken))
+                .refreshRequest(createRefreshRequest(roleArn, resolvedSessionName, oidcToken))
                 .asyncCredentialUpdateEnabled(true);
 
         StsClientBuilder stsClientBuilder = StsClient.builder()
@@ -139,6 +150,17 @@ public class AWSSecretProperties {
                 + "'. Session name provided: " + (sessionName != null));
 
         return builder.build();
+    }
+
+    Consumer<AssumeRoleWithWebIdentityRequest.Builder> createRefreshRequest(String roleArn,
+                                                                            String resolvedSessionName,
+                                                                            String originalOidcToken) {
+        return requestBuilder -> {
+            String refreshedToken = oidcTokenRefreshClient.refresh(originalOidcToken);
+            requestBuilder.roleArn(roleArn)
+                    .roleSessionName(resolvedSessionName)
+                    .webIdentityToken(refreshedToken);
+        };
     }
 
     private static String defaultSessionName() {

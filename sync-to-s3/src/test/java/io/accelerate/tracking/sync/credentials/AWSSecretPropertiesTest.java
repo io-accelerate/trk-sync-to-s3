@@ -6,10 +6,14 @@ import software.amazon.awssdk.auth.credentials.AwsCredentials;
 import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
 import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.sts.auth.StsAssumeRoleWithWebIdentityCredentialsProvider;
+import software.amazon.awssdk.services.sts.model.AssumeRoleWithWebIdentityRequest;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Properties;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
+
 
 public class AWSSecretPropertiesTest {
 
@@ -33,14 +37,46 @@ public class AWSSecretPropertiesTest {
     @Test
     public void createCredentialsProviderShouldUseWebIdentityWhenTokenPresent() {
         Properties properties = new Properties();
-        properties.setProperty("trk_oidc_jwt_token", "token");
+        properties.setProperty("trk_oidc_jwt_token", "original-token");
         properties.setProperty("trk_oidc_role_arn", "arn:aws:iam::123456789012:role/TestRole");
         properties.setProperty("trk_s3_region", "us-east-1");
 
-        AWSSecretProperties secretProperties = AWSSecretProperties.fromProperties(properties);
+        AWSSecretProperties secretProperties = AWSSecretProperties.fromProperties(properties, token -> token);
 
         Assertions.assertTrue(secretProperties.createCredentialsProvider()
                 instanceof StsAssumeRoleWithWebIdentityCredentialsProvider);
+    }
+
+    @Test
+    public void refreshRequestShouldUseRefreshedTokenOnEveryInvocation() {
+        Properties properties = new Properties();
+        properties.setProperty("trk_s3_region", "us-east-1");
+
+        AtomicInteger invocationCount = new AtomicInteger();
+        OidcTokenRefreshClient refreshClient = originalToken -> {
+            Assertions.assertEquals("original-token", originalToken);
+            return "refreshed-token-" + invocationCount.incrementAndGet();
+        };
+
+        AWSSecretProperties secretProperties = AWSSecretProperties.fromProperties(properties, refreshClient);
+
+        Consumer<AssumeRoleWithWebIdentityRequest.Builder> refreshRequest =
+                secretProperties.createRefreshRequest("arn:aws:iam::123456789012:role/TestRole", "session", "original-token");
+
+        AssumeRoleWithWebIdentityRequest.Builder builderOne = AssumeRoleWithWebIdentityRequest.builder();
+        refreshRequest.accept(builderOne);
+        AssumeRoleWithWebIdentityRequest firstRequest = builderOne.build();
+
+        Assertions.assertEquals("refreshed-token-1", firstRequest.webIdentityToken());
+        Assertions.assertEquals("arn:aws:iam::123456789012:role/TestRole", firstRequest.roleArn());
+        Assertions.assertEquals("session", firstRequest.roleSessionName());
+
+        AssumeRoleWithWebIdentityRequest.Builder builderTwo = AssumeRoleWithWebIdentityRequest.builder();
+        refreshRequest.accept(builderTwo);
+        AssumeRoleWithWebIdentityRequest secondRequest = builderTwo.build();
+
+        Assertions.assertEquals("refreshed-token-2", secondRequest.webIdentityToken());
+        Assertions.assertEquals(2, invocationCount.get());
     }
 
     @Test
@@ -50,4 +86,5 @@ public class AWSSecretPropertiesTest {
             AWSSecretProperties secretProperties = AWSSecretProperties.fromPlainTextFile(path);
         });
     }
+
 }
