@@ -33,34 +33,46 @@ class HttpOidcTokenRefreshClient implements OidcTokenRefreshClient {
     @Override
     public String refresh(String originalOidcToken) {
         Objects.requireNonNull(originalOidcToken, "originalOidcToken");
-        String issuer = extractIssuer(originalOidcToken);
+        String issuer;
+        try {
+            issuer = extractIssuer(originalOidcToken);
+        } catch (RuntimeException e) {
+            log.error("Failed to determine issuer while refreshing OIDC token", e);
+            throw e;
+        }
+
         URI refreshUri = buildRefreshUri(issuer);
-        log.debug("Refreshing OIDC token via '{}'", refreshUri);
+        log.info("Refreshing OIDC token issued by '{}'", issuer);
 
         HttpRequest request = HttpRequest.newBuilder(refreshUri)
                 .header("Authorization", "Bearer " + originalOidcToken)
                 .POST(HttpRequest.BodyPublishers.noBody())
                 .build();
 
-        HttpResponse<String> response = send(request);
+        HttpResponse<String> response = send(request, issuer);
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            log.error("Failed to refresh OIDC token for issuer '{}'. HTTP status {}", issuer, response.statusCode());
             throw new IllegalStateException("Failed to refresh OIDC token. HTTP status: " + response.statusCode());
         }
 
         String accessToken = extractAccessToken(response.body());
         if (accessToken == null || accessToken.isBlank()) {
+            log.error("IDP refresh response for issuer '{}' did not contain an access token", issuer);
             throw new IllegalStateException("IDP refresh response missing access token");
         }
+        log.info("Successfully refreshed OIDC token for issuer '{}'", issuer);
         return accessToken;
     }
 
-    private HttpResponse<String> send(HttpRequest request) {
+    private HttpResponse<String> send(HttpRequest request, String issuer) {
         try {
             return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            log.error("Interrupted while refreshing OIDC token for issuer '{}'", issuer, e);
             throw new IllegalStateException("Interrupted while refreshing OIDC token", e);
         } catch (IOException e) {
+            log.error("I/O error while refreshing OIDC token for issuer '{}': {}", issuer, e.getMessage(), e);
             throw new IllegalStateException("Failed to refresh OIDC token: " + e.getMessage(), e);
         }
     }
@@ -76,11 +88,13 @@ class HttpOidcTokenRefreshClient implements OidcTokenRefreshClient {
             byte[] decodedPayload = Base64.getUrlDecoder().decode(tokenParts[1]);
             payloadJson = new String(decodedPayload, StandardCharsets.UTF_8);
         } catch (IllegalArgumentException e) {
+            log.error("OIDC token payload was not valid base64url while attempting refresh", e);
             throw new IllegalStateException("OIDC token payload is not valid base64url", e);
         }
 
         Matcher matcher = ISS_CLAIM_PATTERN.matcher(payloadJson);
         if (!matcher.find()) {
+            log.error("OIDC token payload did not contain an issuer claim while attempting refresh");
             throw new IllegalStateException("OIDC token does not contain issuer claim");
         }
         return matcher.group(1);

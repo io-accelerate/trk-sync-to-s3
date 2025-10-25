@@ -2,6 +2,7 @@ package io.accelerate.tracking.sync;
 
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.Parameter;
+import com.beust.jcommander.ParameterException;
 import com.beust.jcommander.Parameters;
 import io.accelerate.tracking.sync.credentials.AWSSecretProperties;
 import io.accelerate.tracking.sync.sync.Filters;
@@ -9,6 +10,9 @@ import io.accelerate.tracking.sync.sync.RemoteSync;
 import io.accelerate.tracking.sync.sync.Source;
 import io.accelerate.tracking.sync.sync.SyncException;
 import io.accelerate.tracking.sync.sync.progress.UploadStatsProgressListener;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import software.amazon.awssdk.services.s3.S3AsyncClient;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -31,6 +35,7 @@ public class SyncFileApp {
     @Parameter(names = {"--filter-extension"})
     private String filterExtension = "txt";
 
+    private static final Logger log = LoggerFactory.getLogger(SyncFileApp.class);
     private static final NumberFormat percentageFormatter = NumberFormat.getPercentInstance();
     private static final NumberFormat uploadSpeedFormatter = NumberFormat.getNumberInstance();
 
@@ -42,18 +47,59 @@ public class SyncFileApp {
     public static void main(String[] args) throws SyncException {
         SyncFileApp app = new SyncFileApp();
         JCommander jCommander = new JCommander(app);
-        jCommander.parse(args);
+        try {
+            jCommander.parse(args);
+        } catch (ParameterException e) {
+            log.error("Invalid command line arguments: {}", e.getMessage());
+            jCommander.usage();
+            throw e;
+        }
 
-        app.run();
+        log.info("Starting sync from '{}' (recursive: {}) using config '{}' with extension filter '{}'",
+                app.dirPath,
+                app.recursive,
+                app.configPath,
+                app.filterExtension);
+
+        try {
+            app.run();
+            log.info("Sync completed successfully");
+        } catch (SyncException e) {
+            log.error("Sync failed", e);
+            throw e;
+        } catch (RuntimeException e) {
+            log.error("Sync failed with an unexpected error", e);
+            throw e;
+        }
     }
 
     private void run() throws SyncException {
         // Prepare
         Source source = buildSource();
         Path path = Paths.get(configPath);
-        AWSSecretProperties awsSecretProperties = AWSSecretProperties.fromPlainTextFile(path);
-        
-        RemoteSync sync = new RemoteSync(source, awsSecretProperties.createClient(), awsSecretProperties.getS3Bucket(), awsSecretProperties.getS3Prefix());
+        log.info("Loading AWS credentials from '{}'", path.toAbsolutePath());
+
+        AWSSecretProperties awsSecretProperties;
+        try {
+            awsSecretProperties = AWSSecretProperties.fromPlainTextFile(path);
+        } catch (RuntimeException e) {
+            log.error("Failed to load AWS credentials from '{}'", path.toAbsolutePath(), e);
+            throw e;
+        }
+
+        String bucket = awsSecretProperties.getS3Bucket();
+        String prefix = awsSecretProperties.getS3Prefix();
+        log.info("Target bucket '{}' with prefix '{}'", bucket, prefix == null ? "" : prefix);
+
+        S3AsyncClient s3Client;
+        try {
+            s3Client = awsSecretProperties.createClient();
+        } catch (RuntimeException e) {
+            log.error("Failed to create S3 client for bucket '{}'", bucket, e);
+            throw e;
+        }
+
+        RemoteSync sync = new RemoteSync(source, s3Client, bucket, prefix);
 
         // Configure progress listener
         UploadStatsProgressListener uploadStatsProgressListener = new UploadStatsProgressListener();
@@ -74,15 +120,20 @@ public class SyncFileApp {
             }
         }, 0, 1000);
 
-        // Run (blocking)
-        sync.run();
-        timer.cancel();
+        try {
+            log.info("Beginning sync run");
+            sync.run();
+            log.info("Sync execution finished");
+        } finally {
+            timer.cancel();
+        }
     }
 
     private Source buildSource() {
         Filters filters = Filters.getBuilder()
-                .include(Filters.endsWith("."+filterExtension))
+                .include(Filters.endsWith("." + filterExtension))
                 .create();
+        log.debug("Applying extension filter '.{}'", filterExtension);
         return Source.getBuilder(Paths.get(dirPath))
                 .setFilters(filters)
                 .setRecursive(recursive)

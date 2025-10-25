@@ -1,5 +1,8 @@
 package io.accelerate.tracking.sync.sync;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -11,6 +14,8 @@ import java.util.function.BiPredicate;
 import java.util.stream.Collectors;
 
 public class Source {
+
+    private static final Logger log = LoggerFactory.getLogger(Source.class);
 
     private Path path;
 
@@ -73,15 +78,21 @@ public class Source {
         try {
             int maxDepth = isRecursive ? Integer.MAX_VALUE : 1;
             File base = path.toFile();
+            log.debug("Searching '{}' (recursive: {}) with filters [{}]", base.getAbsolutePath(), isRecursive, filters.describe());
             BiPredicate<Path, BasicFileAttributes> matcher = (filePath, fileAttr) -> {
-                return fileAttr.isRegularFile() && filters.accept(filePath);
+                boolean accepted = fileAttr.isRegularFile() && filters.accept(filePath);
+                if (log.isTraceEnabled()) {
+                    log.trace("Evaluated '{}': {}", filePath, accepted ? "accepted" : "rejected");
+                }
+                return accepted;
             };
-            return Files.find(path, maxDepth, matcher)
-                    .map(filePath -> {
-                        return base.toURI().relativize(filePath.toFile().toURI()).getPath();
-                    })
+            List<String> matches = Files.find(path, maxDepth, matcher)
+                    .map(filePath -> base.toURI().relativize(filePath.toFile().toURI()).getPath())
                     .collect(Collectors.toList());
+            log.debug("Matched {} files: {}", matches.size(), matches);
+            return matches;
         } catch (IOException ex) {
+            log.error("Failed to discover files under '{}'", path, ex);
             return new ArrayList<>();
         }
     }
